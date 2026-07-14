@@ -1,0 +1,504 @@
+{% extends 'base.html' %}
+{% block title %}Contractor PPE Issue{% endblock %}
+{% block page_title %}Contractor PPE / Equipment Issue{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
+<style>
+  .choices__inner {
+    border-radius: 6px;
+    border: 1px solid #ced4da;
+    min-height: 38px;
+  }
+
+  .choices__list--dropdown {
+    z-index: 9999;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Filter + Top Buttons -->
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="GET" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label small mb-1">From Date</label>
+        <input type="date" name="from_date" class="form-control form-control-sm" value="{{ from_date }}">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-1">To Date</label>
+        <input type="date" name="to_date" class="form-control form-control-sm" value="{{ to_date }}">
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-filter me-1"></i>Filter</button>
+        <a href="{{ url_for('contractor_issues.index') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+      </div>
+      <div class="col-auto ms-auto d-flex gap-2">
+        <a href="{{ url_for('contractor_issues.download', from_date=from_date, to_date=to_date) }}"
+          class="btn btn-sm btn-outline-success">
+          <i class="fas fa-file-excel me-1"></i> Download Report
+        </a>
+        <button type="button" class="btn btn-sm btn-jsw" data-bs-toggle="modal" data-bs-target="#addModal">
+          <i class="fas fa-plus me-1"></i> Issue to Contractor
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Issue Table -->
+<div class="card">
+  <div class="card-header">
+    <i class="fas fa-hard-hat me-2"></i>Contractor Issue Records ({{ issues|length }})
+  </div>
+  <div class="card-body p-0">
+    <div class="p-3">
+      <input type="text" id="searchInput" class="form-control" placeholder="Search issue records...">
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="issueTable">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Contractor</th>
+            <th>Department</th>
+            <th>Employee</th>
+            <th>Item</th>
+            <th>Qty</th>
+            <th>Unit</th>
+            <th>Status</th>
+            <th>Returnable</th>
+            <th>Return Due</th>
+            <th>Issued By</th>
+            <th>Remarks</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in issues %}
+          <tr class="issue-row">
+            <td>{{ r.issue_date }}</td>
+            <td><strong>{{ r.contractor_name }}</strong></td>
+            <td>{{ r.department or '-' }}</td>
+            <td>{{ (r.emp_code ~ ' - ' ~ r.employee_name) if r.employee_name else '-' }}</td>
+            <td>{{ r.item_name }}</td>
+            <td>{{ r.qty }}</td>
+            <td>{{ r.unit }}</td>
+            <td>
+              <span class="badge {{ 'status-issued' if r.status == 'Issued' else 'status-returned' }}">
+                {{ r.status }}
+              </span>
+            </td>
+            <td>{{ 'Yes' if r.returnable else 'No' }}</td>
+            <td>{{ r.return_due_date or '-' }}</td>
+            <td>{{ r.issued_by or '-' }}</td>
+            <td>{{ r.remarks or '-' }}</td>
+            <td>
+              <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                data-bs-target="#editModal{{ r.id }}">
+                <i class="fas fa-edit"></i>
+              </button>
+              <form method="POST" action="{{ url_for('contractor_issues.delete', id=r.id) }}" class="d-inline"
+                onsubmit="return confirm('Delete this issue record? Stock will be restored.');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </form>
+            </td>
+          </tr>
+
+          <!-- Edit Modal -->
+          <div class="modal fade" id="editModal{{ r.id }}" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">Edit Issue Record</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="POST" action="{{ url_for('contractor_issues.edit', id=r.id) }}">
+                  <div class="modal-body">
+
+                    <div class="mb-3">
+                      <label class="form-label">Contractor *</label>
+                      <select name="contractor_id" id="editContractor{{ r.id }}" class="form-select" required>
+                        {% for ct in contractors %}
+                        <option value="{{ ct.id }}" data-name="{{ ct.name }}" {{ 'selected' if ct.id==r.contractor_id
+                          }}>
+                          {{ ct.label }}
+                        </option>
+                        {% endfor %}
+                      </select>
+                    </div>
+
+                    <!-- Employee select no longer carries name= directly.
+                         A hidden input (synced on submit) is the source of
+                         truth posted to Flask, so a Choices.js rebuild can
+                         never silently drop this field from the form. -->
+                    <div class="mb-3">
+                      <label class="form-label">Employee *</label>
+                      <select id="editEmployee{{ r.id }}" class="form-select" required>
+                        {% if r.employee_id %}
+                        <option value="{{ r.employee_id }}" selected>{{ r.emp_code }} - {{ r.employee_name }}</option>
+                        {% else %}
+                        <option value="" selected disabled>-- No employee on record, please select --</option>
+                        {% endif %}
+                      </select>
+                      <input type="hidden" name="employee_id" id="editEmployeeHidden{{ r.id }}"
+                             value="{{ r.employee_id or '' }}">
+                    </div>
+
+                    <div class="mb-3">
+                      <label class="form-label">Item *</label>
+                      <select name="item_id" id="editItem{{ r.id }}" class="form-select" required>
+                        {% for it in items %}
+                        <option value="{{ it.id }}" {{ 'selected' if it.id==r.item_id }}>
+                          {{ it.label }}
+                        </option>
+                        {% endfor %}
+                      </select>
+                    </div>
+
+                    <div class="row g-2">
+                      <div class="col-6">
+                        <label class="form-label">Quantity</label>
+                        <input type="number" name="qty" class="form-control" value="{{ r.qty }}" min="1" required>
+                      </div>
+                      <div class="col-6">
+                        <label class="form-label">Issue Date</label>
+                        <input type="date" name="issue_date" class="form-control" value="{{ r.issue_date }}" required>
+                      </div>
+                    </div>
+
+                    <div class="mb-2 mt-3 form-check">
+                      <input type="checkbox" name="returnable" class="form-check-input" id="returnable{{ r.id }}"
+                        {{ 'checked' if r.returnable }}
+                        onchange="document.getElementById('dueWrap{{ r.id }}').classList.toggle('d-none', !this.checked)">
+                      <label class="form-check-label" for="returnable{{ r.id }}">Returnable Item</label>
+                    </div>
+                    <div class="mb-2 {{ '' if r.returnable else 'd-none' }}" id="dueWrap{{ r.id }}">
+                      <label class="form-label">Return Due Date</label>
+                      <input type="date" name="return_due_date" class="form-control"
+                        value="{{ r.return_due_date or '' }}">
+                    </div>
+                    <div class="mb-2">
+                      <label class="form-label">Remarks</label>
+                      <textarea name="remarks" class="form-control" rows="2">{{ r.remarks or '' }}</textarea>
+                    </div>
+
+                  </div>
+                  <div class="modal-footer">
+                    <button type="submit" class="btn btn-jsw">Save Changes</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          {% else %}
+          <tr>
+            <td colspan="13" class="text-center text-muted py-4">No contractor issue records yet.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add / Issue to Contractor Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-hard-hat me-2"></i>Issue PPE / Equipment to Contractor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('contractor_issues.add') }}" id="issueForm">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Contractor *</label>
+            <select name="contractor_id" id="contractorSelect" class="form-select" required>
+              <option value="">-- Select Contractor --</option>
+              {% for ct in contractors %}
+              <option value="{{ ct.id }}" data-name="{{ ct.name }}">{{ ct.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Employee(s) *</label>
+            <select id="employeeSelect" class="form-select" multiple disabled>
+              <option value="" disabled>Select a contractor first...</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Item(s) *</label>
+            <select id="itemSelect" class="form-select" multiple>
+              {% for it in items %}
+              <option value="{{ it.id }}">{{ it.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">Quantity (per item) *</label>
+              <input type="number" name="qty" class="form-control" min="1" value="1" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Issue Date *</label>
+              <input type="date" name="issue_date" class="form-control" value="{{ today }}" required>
+            </div>
+          </div>
+          <div class="mb-2 mt-3 form-check">
+            <input type="checkbox" name="returnable" class="form-check-input" id="addReturnable"
+              onchange="document.getElementById('addDueWrap').classList.toggle('d-none', !this.checked)">
+            <label class="form-check-label" for="addReturnable">Returnable Item</label>
+          </div>
+          <div class="mb-2 d-none" id="addDueWrap">
+            <label class="form-label">Return Due Date</label>
+            <input type="date" name="return_due_date" class="form-control">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Remarks</label>
+            <textarea name="remarks" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="alert alert-info small mb-0">
+            <i class="fas fa-info-circle me-1"></i>
+            If multiple employees and multiple items are selected, a separate issue record is created for every
+            employee × item combination, each with the quantity above.
+          </div>
+
+          <input type="hidden" name="employee_id" id="employeeIdsHidden">
+          <input type="hidden" name="item_id" id="itemIdsHidden">
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-jsw"><i class="fas fa-hand-holding me-1"></i>Issue</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+<script type="application/json" id="contractor-employees-data">{{ contractor_employees | tojson }}</script>
+<script>
+  const CONTRACTOR_EMPLOYEES = JSON.parse(document.getElementById('contractor-employees-data').textContent);
+
+  // Normalize for comparison: trim whitespace + uppercase, so
+  // "ABB india Ltd " and "ABB INDIA LTD" are treated as the same contractor.
+  function norm(str) {
+    return (str || '').toString().trim().toUpperCase();
+  }
+
+  function getEmployeesForContractor(contractorId) {
+    return CONTRACTOR_EMPLOYEES.filter(function (e) {
+      return String(e.contractor_id) === String(contractorId);
+    });
+  }
+
+  // ── Table search ──
+  var searchInput = document.getElementById('searchInput');
+  if (searchInput) {
+    searchInput.addEventListener('keyup', function () {
+      var val = this.value.toLowerCase();
+      document.querySelectorAll('tr.issue-row').forEach(function (row) {
+        row.style.display = row.textContent.toLowerCase().includes(val) ? '' : 'none';
+      });
+    });
+  }
+
+  var addModalEl = document.getElementById('addModal');
+  var itemChoices, employeeChoices;
+
+  if (addModalEl) {
+    addModalEl.addEventListener('shown.bs.modal', function () {
+      var itSel = document.getElementById('itemSelect');
+      if (!itSel._choices) {
+        itemChoices = new Choices(itSel, {
+          removeItemButton: true, searchEnabled: true,
+          placeholderValue: 'Select item(s)...', shouldSort: false
+        });
+        itSel._choices = itemChoices;
+      }
+    });
+
+    // When contractor changes, rebuild the employee list filtered to that contractor
+    document.getElementById('contractorSelect').addEventListener('change', function () {
+
+      var contractorId = this.value;
+      var empSel = document.getElementById('employeeSelect');
+
+      if (employeeChoices) {
+        employeeChoices.destroy();
+        employeeChoices = null;
+      }
+
+      empSel.innerHTML = "";
+
+      if (!contractorId) {
+        empSel.disabled = true;
+        empSel.innerHTML = '<option value="">Select a contractor first...</option>';
+        return;
+      }
+
+      var matches = CONTRACTOR_EMPLOYEES.filter(function (emp) {
+        return String(emp.contractor_id) === String(contractorId);
+      });
+
+      console.log("Selected Contractor:", contractorId);
+      console.log("Matched Employees:", matches);
+
+      if (matches.length === 0) {
+        empSel.disabled = true;
+        empSel.innerHTML = '<option value="">No employees found</option>';
+        return;
+      }
+
+      matches.forEach(function (emp) {
+        var option = document.createElement("option");
+        option.value = emp.id;
+        option.textContent = emp.label;
+        empSel.appendChild(option);
+      });
+
+      empSel.disabled = false;
+
+      employeeChoices = new Choices(empSel, {
+        removeItemButton: true,
+        searchEnabled: true,
+        shouldSort: false,
+        placeholderValue: "Select employee(s)..."
+      });
+
+    });
+
+    var issueForm = document.getElementById('issueForm');
+    issueForm.addEventListener('submit', function (e) {
+      var empSel = document.getElementById('employeeSelect');
+      var itSel = document.getElementById('itemSelect');
+      var empVals = Array.from(empSel.selectedOptions).map(o => o.value).filter(v => v);
+      var itVals = Array.from(itSel.selectedOptions).map(o => o.value);
+
+      if (!document.getElementById('contractorSelect').value || empVals.length === 0 || itVals.length === 0) {
+        e.preventDefault();
+        alert('Please select a contractor, at least one employee, and at least one item.');
+        return;
+      }
+
+      document.getElementById('employeeIdsHidden').value = empVals.join(',');
+      document.getElementById('itemIdsHidden').value = itVals.join(',');
+    });
+
+    addModalEl.addEventListener('hidden.bs.modal', function () {
+      issueForm.reset();
+      document.getElementById('employeeSelect').innerHTML = '<option value="" disabled>Select a contractor first...</option>';
+      document.getElementById('employeeSelect').disabled = true;
+      if (employeeChoices) { employeeChoices.destroy(); employeeChoices = null; }
+      document.getElementById('addDueWrap').classList.add('d-none');
+    });
+  }
+
+  // ── Edit modal ─────────────────────────────────────────────
+  document.querySelectorAll("[id^='editModal']").forEach(function (modal) {
+
+    modal.addEventListener("shown.bs.modal", function () {
+
+      var id = modal.id.replace("editModal", "");
+
+      var contractor = document.getElementById("editContractor" + id);
+      var employee = document.getElementById("editEmployee" + id);
+      var employeeHidden = document.getElementById("editEmployeeHidden" + id);
+
+      // Remember the employee this issue was ORIGINALLY assigned to, so it's
+      // never lost even if that employee is now Inactive or the contractor
+      // dropdown gets changed.
+      var originalEmployeeId = employee.value;
+      var originalEmployeeText = employee.options.length
+        ? employee.options[employee.selectedIndex].text
+        : "";
+
+      function loadEmployees(keepSelected = true) {
+
+        var selectedId = keepSelected ? employee.value : originalEmployeeId;
+        var selectedText = keepSelected
+          ? (employee.options.length ? employee.options[employee.selectedIndex].text : "")
+          : originalEmployeeText;
+
+        var contractorUnchanged = String(contractor.value) === String(contractor.dataset.originalContractorId);
+
+        if (employee._choices) {
+          employee._choices.destroy();
+          employee._choices = null;
+        }
+        employee.innerHTML = "";
+
+        if (selectedId && (keepSelected || contractorUnchanged)) {
+          var first = document.createElement("option");
+          first.value = selectedId;
+          first.textContent = selectedText;
+          first.selected = true;
+          employee.appendChild(first);
+        }
+
+        var list = CONTRACTOR_EMPLOYEES.filter(function (emp) {
+          return String(emp.contractor_id) === String(contractor.value);
+        });
+        list.forEach(function (emp) {
+          if (String(emp.id) === String(selectedId)) return;
+          var opt = document.createElement("option");
+          opt.value = emp.id;
+          opt.textContent = emp.label;
+          employee.appendChild(opt);
+        });
+
+        // Safety net: never leave the select with zero options.
+        if (!employee.options.length) {
+          var placeholder = document.createElement("option");
+          placeholder.value = "";
+          placeholder.textContent = "-- Select employee --";
+          employee.appendChild(placeholder);
+        }
+
+        employee._choices = new Choices(employee, { searchEnabled: true, shouldSort: false });
+
+        // Keep the hidden field (the one actually posted to Flask) in sync
+        // every time the visible select is rebuilt.
+        employeeHidden.value = employee.value || "";
+      }
+
+      if (!contractor.dataset.originalContractorId) {
+        contractor.dataset.originalContractorId = contractor.value;
+      }
+
+      loadEmployees(true);
+      contractor.onchange = function () { loadEmployees(false); };
+
+      // Also sync on every manual change of the visible select (Choices.js
+      // fires a native 'change' event on the underlying <select>).
+      employee.addEventListener('change', function () {
+        employeeHidden.value = employee.value || "";
+      });
+
+      // Block submit client-side with a clear message instead of a silent
+      // round-trip when no employee ends up selected. Always sync the
+      // hidden field one last time right before submit, so whatever the
+      // visible select currently shows is what actually gets posted.
+      var editForm = modal.querySelector('form');
+      editForm.onsubmit = function (e) {
+        employeeHidden.value = employee.value || "";
+        if (!employeeHidden.value) {
+          e.preventDefault();
+          alert('Please select an employee before saving (the contractor may have changed).');
+        }
+      };
+    });
+  });
+</script>
+{% endblock %}

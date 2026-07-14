@@ -1,0 +1,254 @@
+{% extends 'base.html' %}
+{% block title %}Item Master{% endblock %}
+{% block page_title %}Item Master{% endblock %}
+
+{% block extra_css %}
+<style>
+.import-zone {
+  border: 2px dashed #1A3A5C; border-radius: 10px; padding: 30px;
+  text-align: center; background: #f8fafc; cursor: pointer; transition: all 0.2s;
+}
+.import-zone:hover, .import-zone.dragover { background: #eef2ff; border-color: #2563A8; }
+.import-zone i { font-size: 2.5rem; color: #1A3A5C; }
+#fileNameDisplay { margin-top: 10px; font-size: 13px; color: #2563A8; font-weight: 500; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-end mb-3 gap-2 flex-wrap">
+  <button type="button" id="openImportBtn" class="btn btn-outline-primary">
+    <i class="fas fa-file-upload me-1"></i> Import Excel
+  </button>
+  <button class="btn btn-jsw btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">
+    <i class="fas fa-plus me-1"></i> Add Item
+  </button>
+</div>
+
+<div class="card">
+  <div class="card-header"><i class="fas fa-boxes me-2"></i>All Items ({{ items|length }})</div>
+  <div class="card-body p-0">
+    <div class="p-3"><input type="text" id="searchInput" class="form-control" placeholder="Search items..."></div>
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="itemTable">
+        <thead><tr><th>Code</th><th>Item Name</th><th>Category</th><th>Unit</th><th>Stock</th><th>Min Stock</th><th>Expiry</th><th>Calibration</th><th>Action</th></tr></thead>
+        <tbody>
+          {% for item in items %}
+          <tr>
+            <td><code>{{ item.item_code }}</code></td>
+            <td><strong>{{ item.item_name }}</strong></td>
+            <td><span class="badge {{ 'badge-ppe' if item.category=='PPE' else 'badge-equip' }}">{{ item.category }}</span></td>
+            <td>{{ item.unit }}</td>
+            <td>
+              <span class="badge {{ 'bg-danger' if item.stock <= item.min_stock and item.min_stock > 0 else 'bg-success' }}">
+                {{ item.stock }}
+              </span>
+            </td>
+            <td>{{ item.min_stock }}</td>
+            <td>{% if item.has_expiry %}<i class="fas fa-check text-success"></i>{% else %}<i class="fas fa-times text-muted"></i>{% endif %}</td>
+            <td>{% if item.has_calibration %}<i class="fas fa-check text-success"></i>{% else %}<i class="fas fa-times text-muted"></i>{% endif %}</td>
+            <td>
+              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editModal{{ item.id }}">
+                <i class="fas fa-edit"></i>
+              </button>
+              <form method="POST" action="{{ url_for('items.delete', id=item.id) }}" class="d-inline"
+                    onsubmit="return confirm('Delete item {{ item.item_name }}? This cannot be undone.');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </form>
+            </td>
+          </tr>
+          <div class="modal fade" id="editModal{{ item.id }}" tabindex="-1">
+            <div class="modal-dialog">
+              <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Edit Item</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <form method="POST" action="{{ url_for('items.edit', id=item.id) }}">
+                  <div class="modal-body">
+                    <div class="row g-2">
+                      <div class="col-6"><label class="form-label">Item Code</label><input type="text" name="item_code" class="form-control" value="{{ item.item_code }}" required></div>
+                      <div class="col-6"><label class="form-label">Unit</label><input type="text" name="unit" class="form-control" value="{{ item.unit }}"></div>
+                      <div class="col-12"><label class="form-label">Item Name</label><input type="text" name="item_name" class="form-control" value="{{ item.item_name }}" required></div>
+                      <div class="col-6"><label class="form-label">Category</label>
+                        <select name="category" class="form-select">
+                          <option value="PPE" {{ 'selected' if item.category=='PPE' }}>PPE</option>
+                          <option value="Operational Equipment" {{ 'selected' if item.category=='Operational Equipment' }}>Operational Equipment</option>
+                          <option value="Life Safety" {{ 'selected' if item.category=='Life Safety' }}>Life Safety</option>
+                          <option value="Gas Detection" {{ 'selected' if item.category=='Gas Detection' }}>Gas Detection</option>
+                        </select></div>
+                      <div class="col-3"><label class="form-label">Min Stock</label><input type="number" name="min_stock" class="form-control" value="{{ item.min_stock }}"></div>
+                      <div class="col-3"><label class="form-label">Reorder</label><input type="number" name="reorder_level" class="form-control" value="{{ item.reorder_level }}"></div>
+                      <div class="col-6"><div class="form-check mt-3"><input type="checkbox" name="has_expiry" class="form-check-input" id="exp{{ item.id }}" {{ 'checked' if item.has_expiry }}><label class="form-check-label" for="exp{{ item.id }}">Has Expiry Date</label></div></div>
+                      <div class="col-6"><div class="form-check mt-3"><input type="checkbox" name="has_calibration" class="form-check-input" id="cal{{ item.id }}" {{ 'checked' if item.has_calibration }}><label class="form-check-label" for="cal{{ item.id }}">Needs Calibration</label></div></div>
+                    </div>
+                  </div>
+                  <div class="modal-footer"><button type="submit" class="btn btn-jsw btn-primary">Save</button></div>
+                </form>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Add New Item</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <form method="POST" action="{{ url_for('items.add') }}">
+        <div class="modal-body">
+          <div class="row g-2">
+            <div class="col-6"><label class="form-label">Item Code *</label><input type="text" name="item_code" class="form-control" required placeholder="e.g. PPE001"></div>
+            <div class="col-6"><label class="form-label">Unit</label><input type="text" name="unit" class="form-control" value="Nos"></div>
+            <div class="col-12"><label class="form-label">Item Name *</label><input type="text" name="item_name" class="form-control" required placeholder="e.g. Safety Helmet"></div>
+            <div class="col-6"><label class="form-label">Category *</label>
+              <select name="category" class="form-select" required>
+                <option value="">-- Select --</option>
+                <option value="PPE">PPE</option>
+                <option value="Operational Equipment">Operational Equipment</option>
+                <option value="Life Safety">Life Safety</option>
+                <option value="Gas Detection">Gas Detection</option>
+                <option value="Fire Safety">Fire Safety</option>
+              </select></div>
+            <div class="col-3"><label class="form-label">Min Stock</label><input type="number" name="min_stock" class="form-control" value="0"></div>
+            <div class="col-3"><label class="form-label">Reorder</label><input type="number" name="reorder_level" class="form-control" value="0"></div>
+            <div class="col-6"><div class="form-check mt-2"><input type="checkbox" name="has_expiry" class="form-check-input" id="newExpiry"><label class="form-check-label" for="newExpiry">Has Expiry Date</label></div></div>
+            <div class="col-6"><div class="form-check mt-2"><input type="checkbox" name="has_calibration" class="form-check-input" id="newCal"><label class="form-check-label" for="newCal">Needs Calibration</label></div></div>
+          </div>
+        </div>
+        <div class="modal-footer"><button type="submit" class="btn btn-jsw btn-primary"><i class="fas fa-save me-1"></i>Save Item</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===== IMPORT EXCEL MODAL ===== -->
+<div class="modal fade" id="importExcelModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#1A3A5C; color:#fff;">
+        <h5 class="modal-title" id="importModalLabel">
+          <i class="fas fa-file-upload me-2"></i>Import Items from Excel
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+
+      <form method="POST" action="{{ url_for('items.import_excel') }}"
+            enctype="multipart/form-data" id="importForm">
+        <div class="modal-body">
+
+          <div class="alert alert-info mb-3">
+            <strong><i class="fas fa-info-circle me-1"></i> Any Excel format is accepted.</strong>
+            <div class="mt-2 small">
+              Headers matched automatically, case-insensitive. Accepted headers:<br>
+              <code>Item Code / Item Name / Category / Unit / Min Stock / Reorder Level / Has Expiry / Has Calibration</code><br>
+              <span class="text-muted">No headers? Positional order used: A=Code, B=Name, C=Category, D=Unit, E=MinStock, F=Reorder, G=Expiry, H=Calibration</span><br>
+              <span class="text-muted">Yes/No columns accept: Yes/No, Y/N, True/False, 1/0 — any case.</span><br>
+              <strong class="text-dark">If an Item Code already exists, that row is UPDATED (not duplicated) — only fields that changed are written.</strong>
+            </div>
+          </div>
+
+          <div class="import-zone" id="dropZone">
+            <i class="fas fa-cloud-upload-alt d-block mb-2"></i>
+            <div class="fw-semibold">Click here to select your Excel file</div>
+            <div class="text-muted small mt-1">or drag &amp; drop — supports .xlsx and .xls</div>
+            <div id="fileNameDisplay"></div>
+          </div>
+
+          <input type="file" name="excel_file" id="excelFileInput" class="d-none" accept=".xlsx,.xls">
+
+        </div>
+        <div class="modal-footer">
+          <a href="{{ url_for('items.export_excel') }}" class="btn btn-outline-secondary me-auto" target="_blank">
+            <i class="fas fa-download me-1"></i> Download Template
+          </a>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success" id="importSubmitBtn" disabled>
+            <i class="fas fa-upload me-1"></i> Import Now
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('searchInput').addEventListener('keyup', function() {
+  const val = this.value.toLowerCase();
+  document.querySelectorAll('#itemTable tbody tr').forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(val) ? '' : 'none';
+  });
+});
+
+// ── Import Excel Modal ───────────────────────────
+var importModalEl = document.getElementById('importExcelModal');
+var importModal   = new bootstrap.Modal(importModalEl);
+var fileInput     = document.getElementById('excelFileInput');
+var dropZone      = document.getElementById('dropZone');
+var fileDisplay   = document.getElementById('fileNameDisplay');
+var submitBtn     = document.getElementById('importSubmitBtn');
+var openBtn       = document.getElementById('openImportBtn');
+
+openBtn.addEventListener('click', function (e) {
+  e.preventDefault();
+  e.stopPropagation();
+  importModal.show();
+});
+
+dropZone.addEventListener('click', function () {
+  fileInput.click();
+});
+
+fileInput.addEventListener('change', function () {
+  if (this.files && this.files.length > 0) {
+    showFile(this.files[0]);
+  }
+});
+
+dropZone.addEventListener('dragover', function (e) {
+  e.preventDefault();
+  this.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', function () {
+  this.classList.remove('dragover');
+});
+
+dropZone.addEventListener('drop', function (e) {
+  e.preventDefault();
+  this.classList.remove('dragover');
+  var files = e.dataTransfer.files;
+  if (files && files.length > 0) {
+    var dt = new DataTransfer();
+    dt.items.add(files[0]);
+    fileInput.files = dt.files;
+    showFile(files[0]);
+  }
+});
+
+function showFile(file) {
+  var ext = file.name.split('.').pop().toLowerCase();
+  if (ext !== 'xlsx' && ext !== 'xls') {
+    fileDisplay.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle me-1"></i>Only .xlsx or .xls files allowed.</span>';
+    submitBtn.disabled = true;
+    return;
+  }
+  fileDisplay.innerHTML =
+    '<i class="fas fa-check-circle text-success me-1"></i>' +
+    '<strong>' + file.name + '</strong> (' + (file.size / 1024).toFixed(1) + ' KB)';
+  submitBtn.disabled = false;
+}
+
+importModalEl.addEventListener('hidden.bs.modal', function () {
+  fileInput.value = '';
+  fileDisplay.innerHTML = '';
+  submitBtn.disabled = true;
+  dropZone.classList.remove('dragover');
+});
+</script>
+{% endblock %}

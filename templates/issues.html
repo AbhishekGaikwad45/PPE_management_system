@@ -1,0 +1,503 @@
+{% extends 'base.html' %}
+{% block title %}Issue PPE{% endblock %}
+{% block page_title %}Issue PPE / Equipment{% endblock %}
+{% block content %}
+
+<style>
+/* ── Multi-select dropdown ─────────────────────────── */
+.ms-wrapper { position: relative; }
+
+.ms-trigger {
+    width: 100%;
+    height: 38px;
+    padding: 0 10px;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    font-size: 14px;
+    background: #fff;
+    color: #6c757d;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    outline: none;
+}
+.ms-trigger.has-value { color: #212529; }
+.ms-trigger:focus { border-color: #86b7fe; box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); }
+
+.ms-panel {
+    display: none;
+    position: absolute;
+    left: 0;
+    top: 41px;
+    width: 100%;
+    min-width: 280px;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.13);
+    z-index: 9999;
+    padding: 10px;
+}
+.ms-panel.open { display: block; }
+
+.ms-search {
+    width: 100%;
+    height: 32px;
+    padding: 0 8px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-size: 13px;
+    outline: none;
+    margin-bottom: 8px;
+}
+.ms-search:focus { border-color: #86b7fe; }
+
+.ms-list { max-height: 200px; overflow-y: auto; }
+
+.ms-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px;
+    font-size: 13px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.ms-item:hover { background: #f1f5f9; }
+.ms-item input[type=checkbox] {
+    width: 14px; height: 14px;
+    cursor: pointer;
+    accent-color: #0d6efd;
+    margin: 0;
+}
+
+.ms-btns {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #e2e8f0;
+}
+.ms-apply {
+    flex: 1; height: 30px;
+    background: #0d6efd; color: #fff;
+    border: none; border-radius: 4px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.ms-apply:hover { background: #0b5ed7; }
+.ms-cancel {
+    flex: 1; height: 30px;
+    background: #e2e8f0; color: #374151;
+    border: none; border-radius: 4px;
+    font-size: 12px; cursor: pointer;
+}
+
+.badge-wrap { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.ms-badge {
+    background: #dbeafe; color: #1e40af;
+    padding: 2px 8px; border-radius: 3px;
+    font-size: 11px; font-weight: 500;
+}
+</style>
+
+
+
+<div class="row g-4">
+
+  <div class="col-12 mb-3">
+  <div class="card">
+    <div class="card-body d-flex flex-wrap align-items-end gap-3">
+      <div>
+        <label class="form-label mb-1">From Date</label>
+        <input type="date" id="filterFrom" class="form-control" value="{{ from_date }}">
+      </div>
+      <div>
+        <label class="form-label mb-1">To Date</label>
+        <input type="date" id="filterTo" class="form-control" value="{{ to_date }}">
+      </div>
+      <button type="button" class="btn btn-primary" onclick="applyDateFilter()">
+        <i class="fas fa-filter me-1"></i>Apply
+      </button>
+      <button type="button" class="btn btn-outline-secondary" onclick="resetDateFilter()">
+        Reset
+      </button>
+      <button type="button" class="btn btn-success ms-auto" onclick="downloadReport()">
+        <i class="fas fa-download me-1"></i>Download Excel
+      </button>
+    </div>
+  </div>
+</div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-hand-holding me-2"></i>Issue PPE/Equipment</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('issues.add') }}">
+
+          <div class="mb-3">
+            <label class="form-label">Issue Date *</label>
+            <input type="date" name="issue_date" class="form-control" value="{{ today }}" required>
+          </div>
+
+          <!-- ── Employee multi-select ── -->
+          <div class="mb-3">
+            <label class="form-label">Employee *</label>
+            <!-- Hidden input carries the final value to Flask -->
+            <input type="hidden" name="employee_id" id="emp-hidden" required>
+            <div class="ms-wrapper" id="emp-wrapper">
+              <button type="button" class="ms-trigger" id="emp-trigger"
+                      onclick="togglePanel('emp')">
+                <span id="emp-label">-- Select Employee --</span>
+                <span style="font-size:10px;color:#6c757d;">▼</span>
+              </button>
+              <div class="ms-panel" id="emp-panel">
+                <input type="text" class="ms-search" id="emp-search"
+                       placeholder="Search name or code…"
+                       oninput="filterList('emp')">
+                <div class="ms-list" id="emp-list"></div>
+                <div class="ms-btns">
+                  <button type="button" class="ms-apply" onclick="applySelection('emp')">Apply</button>
+                  <button type="button" class="ms-cancel" onclick="closePanel('emp')">Cancel</button>
+                </div>
+              </div>
+            </div>
+            <div class="badge-wrap" id="emp-badges"></div>
+          </div>
+
+          <!-- ── Item multi-select ── -->
+          <div class="mb-3">
+            <label class="form-label">Item *</label>
+            <!-- Hidden input carries the final value to Flask -->
+            <input type="hidden" name="item_id" id="item-hidden" required>
+            <div class="ms-wrapper" id="item-wrapper">
+              <button type="button" class="ms-trigger" id="item-trigger"
+                      onclick="togglePanel('item')">
+                <span id="item-label">-- Select Item --</span>
+                <span style="font-size:10px;color:#6c757d;">▼</span>
+              </button>
+              <div class="ms-panel" id="item-panel">
+                <input type="text" class="ms-search" id="item-search"
+                       placeholder="Search item…"
+                       oninput="filterList('item')">
+                <div class="ms-list" id="item-list"></div>
+                <div class="ms-btns">
+                  <button type="button" class="ms-apply" onclick="applySelection('item')">Apply</button>
+                  <button type="button" class="ms-cancel" onclick="closePanel('item')">Cancel</button>
+                </div>
+              </div>
+            </div>
+            <div class="badge-wrap" id="item-badges"></div>
+            <div id="stockWarning" class="text-danger small mt-1" style="display:none">⚠ Insufficient stock!</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Quantity *</label>
+            <input type="number" name="qty" id="qtyInput" class="form-control"
+                   min="1" value="1" required oninput="checkStock()">
+          </div>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input type="checkbox" name="returnable" class="form-check-input"
+                     id="returnableCheck"
+                     onchange="document.getElementById('dueDateRow').style.display=this.checked?'block':'none'">
+              <label class="form-check-label" for="returnableCheck">Returnable Item</label>
+            </div>
+          </div>
+
+          <div class="mb-3" id="dueDateRow" style="display:none">
+            <label class="form-label">Return Due Date</label>
+            <input type="date" name="return_due_date" class="form-control">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Remarks</label>
+            <textarea name="remarks" class="form-control" rows="2"></textarea>
+          </div>
+
+          <button type="submit" class="btn btn-jsw btn-primary w-100">
+            <i class="fas fa-share me-1"></i>Issue Item
+          </button>
+
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-list me-2"></i>Recent Issues</div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+  <tr>
+    <th>Date</th><th>Emp Code</th><th>Name</th>
+    <th>Dept</th><th>Item</th><th>Qty</th><th>Status</th><th>Action</th>
+  </tr>
+</thead>
+<tbody>
+  {% for i in issues %}
+  <tr>
+    <td>{{ i.issue_date }}</td>
+    <td><code>{{ i.emp_code }}</code></td>
+    <td>{{ i.emp_name }}</td>
+    <td>{{ i.department }}</td>
+    <td>{{ i.item_name }}</td>
+    <td>{{ i.qty }} {{ i.unit }}</td>
+    <td>
+      <span class="badge {{ 'status-issued' if i.status=='Issued' else 'status-returned' }}">
+        {{ i.status }}
+      </span>
+      {% if i.returnable %}
+        <span class="badge bg-info ms-1" title="Returnable">R</span>
+      {% endif %}
+    </td>
+    <td>
+      <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editIssueModal{{ i.id }}">
+        <i class="fas fa-edit"></i>
+      </button>
+      <form method="POST" action="{{ url_for('issues.delete', id=i.id) }}" class="d-inline"
+            onsubmit="return confirm('Delete this issue record? Stock will be restored.');">
+        <button type="submit" class="btn btn-sm btn-outline-danger">
+          <i class="fas fa-trash"></i>
+        </button>
+      </form>
+    </td>
+  </tr>
+
+  <!-- Edit Modal -->
+  <div class="modal fade" id="editIssueModal{{ i.id }}" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Edit Issue Record</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form method="POST" action="{{ url_for('issues.edit', id=i.id) }}">
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Issue Date *</label>
+              <input type="date" name="issue_date" class="form-control" value="{{ i.issue_date }}" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Employee</label>
+              <input type="text" class="form-control" value="{{ i.emp_code }} - {{ i.emp_name }}" disabled>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Item</label>
+              <input type="text" class="form-control" value="{{ i.item_name }}" disabled>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Quantity *</label>
+              <input type="number" name="qty" class="form-control" min="1" value="{{ i.qty }}" required>
+            </div>
+            <div class="mb-3">
+              <div class="form-check">
+                <input type="checkbox" name="returnable" class="form-check-input"
+                       id="returnable{{ i.id }}" {{ 'checked' if i.returnable }}>
+                <label class="form-check-label" for="returnable{{ i.id }}">Returnable Item</label>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Return Due Date</label>
+              <input type="date" name="return_due_date" class="form-control" value="{{ i.return_due_date or '' }}">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Remarks</label>
+              <textarea name="remarks" class="form-control" rows="2">{{ i.remarks or '' }}</textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-jsw btn-primary">Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <tr>
+    <td colspan="8" class="text-center text-muted py-4">No issues recorded yet.</td>
+  </tr>
+  {% endfor %}
+</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  
+// ✅ BEST — silences VS Code linter AND works in browser
+const EMPLOYEES = JSON.parse('{{ employees | tojson | safe }}');
+const ITEMS = JSON.parse('{{ items | tojson | safe }}');
+
+
+/* ── State ──────────────────────────────────────────────────── */
+const state = {
+  emp:  { selected: [], pending: [] },
+  item: { selected: [], pending: [] },
+};
+
+function getData(key) { return key === 'emp' ? EMPLOYEES : ITEMS; }
+
+/* ── Render checkboxes ──────────────────────────────────────── */
+function renderList(key, filter) {
+  filter = (filter || '').toLowerCase();
+  const container = document.getElementById(key + '-list');
+  container.innerHTML = '';
+
+  getData(key)
+    .filter(i => i.label.toLowerCase().includes(filter))
+    .forEach(function(item) {
+
+      var label = document.createElement('label');
+      label.className = 'ms-item';
+
+      var cb = document.createElement('input');
+      cb.type    = 'checkbox';
+      cb.value   = item.id;
+      cb.checked = state[key].pending.includes(item.id);
+
+      cb.addEventListener('change', function() {
+        if (cb.checked) {
+          if (!state[key].pending.includes(item.id))
+            state[key].pending.push(item.id);
+        } else {
+          state[key].pending = state[key].pending.filter(x => x !== item.id);
+        }
+      });
+
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(item.label));
+      container.appendChild(label);
+    });
+}
+
+/* ── Panel open / close ─────────────────────────────────────── */
+function togglePanel(key) {
+  var panel = document.getElementById(key + '-panel');
+  var isOpen = panel.classList.contains('open');
+  closeAllPanels();
+  if (!isOpen) {
+    state[key].pending = state[key].selected.slice();  // copy
+    renderList(key, '');
+    panel.classList.add('open');
+    document.getElementById(key + '-search').value = '';
+    setTimeout(function() {
+      document.getElementById(key + '-search').focus();
+    }, 50);
+  }
+}
+
+function closePanel(key) {
+  document.getElementById(key + '-panel').classList.remove('open');
+}
+
+function closeAllPanels() {
+  ['emp', 'item'].forEach(closePanel);
+}
+
+/* ── Live search ────────────────────────────────────────────── */
+function filterList(key) {
+  var val = document.getElementById(key + '-search').value;
+  renderList(key, val);
+}
+
+/* ── Apply selection ────────────────────────────────────────── */
+function applySelection(key) {
+  state[key].selected = state[key].pending.slice();
+  closePanel(key);
+  updateTrigger(key);
+  updateBadges(key);
+  updateHidden(key);
+  if (key === 'item') checkStock();
+}
+
+/* ── Update trigger button label ────────────────────────────── */
+function updateTrigger(key) {
+  var trigger = document.getElementById(key + '-trigger');
+  var labelEl = document.getElementById(key + '-label');
+  var sel     = state[key].selected;
+
+  if (sel.length === 0) {
+    labelEl.textContent = key === 'emp' ? '-- Select Employee --' : '-- Select Item --';
+    trigger.classList.remove('has-value');
+  } else if (sel.length === 1) {
+    var item = getData(key).find(i => i.id === sel[0]);
+    labelEl.textContent = item ? item.label : '';
+    trigger.classList.add('has-value');
+  } else {
+    labelEl.textContent = sel.length + ' selected';
+    trigger.classList.add('has-value');
+  }
+}
+
+/* ── Badge pills below trigger ──────────────────────────────── */
+function updateBadges(key) {
+  var wrap = document.getElementById(key + '-badges');
+  wrap.innerHTML = '';
+  state[key].selected.forEach(function(id) {
+    var item = getData(key).find(i => i.id === id);
+    if (!item) return;
+    var span = document.createElement('span');
+    span.className   = 'ms-badge';
+    span.textContent = item.badge;
+    wrap.appendChild(span);
+  });
+}
+
+/* ── Write comma-separated IDs into hidden input for Flask ──── */
+function updateHidden(key) {
+  document.getElementById(key + '-hidden').value =
+    state[key].selected.join(',');
+}
+
+/* ── Stock warning ──────────────────────────────────────────── */
+function checkStock() {
+  var qty = parseInt(document.getElementById('qtyInput').value) || 0;
+  var insufficient = state.item.selected.some(function(id) {
+    var item = ITEMS.find(i => i.id === id);
+    return item && qty > item.stock;
+  });
+  document.getElementById('stockWarning').style.display =
+    insufficient ? 'block' : 'none';
+}
+
+/* ── Close panels on outside click ─────────────────────────── */
+document.addEventListener('click', function(e) {
+  ['emp', 'item'].forEach(function(key) {
+    var wrapper = document.getElementById(key + '-wrapper');
+    if (wrapper && !wrapper.contains(e.target)) closePanel(key);
+  });
+});
+function applyDateFilter() {
+  const from = document.getElementById('filterFrom').value;
+  const to = document.getElementById('filterTo').value;
+  const params = new URLSearchParams();
+  if (from) params.set('from_date', from);
+  if (to) params.set('to_date', to);
+  window.location.href = "{{ url_for('issues.index') }}?" + params.toString();
+}
+
+function resetDateFilter() {
+  window.location.href = "{{ url_for('issues.index') }}";
+}
+
+function downloadReport() {
+  const from = document.getElementById('filterFrom').value;
+  const to = document.getElementById('filterTo').value;
+  const params = new URLSearchParams();
+  if (from) params.set('from_date', from);
+  if (to) params.set('to_date', to);
+  window.location.href = "{{ url_for('issues.download') }}?" + params.toString();
+}
+</script>
+{% endblock %}

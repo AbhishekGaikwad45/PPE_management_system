@@ -1,0 +1,453 @@
+{% extends 'base.html' %}
+{% block title %}Contractors{% endblock %}
+{% block page_title %}Contractor Master{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
+<style>
+.choices__inner { border-radius: 6px; border: 1px solid #ced4da; min-height: 38px; }
+.choices__list--dropdown { z-index: 9999; }
+.import-zone {
+  border: 2px dashed #1A3A5C; border-radius: 10px; padding: 30px;
+  text-align: center; background: #f8fafc; cursor: pointer; transition: all 0.2s;
+}
+.import-zone:hover, .import-zone.dragover { background: #eef2ff; border-color: #2563A8; }
+.import-zone i { font-size: 2.5rem; color: #1A3A5C; }
+#fileNameDisplay { margin-top: 10px; font-size: 13px; color: #2563A8; font-weight: 500; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Top Buttons -->
+{% if can_create %}
+<div class="d-flex justify-content-end mb-3 gap-2 flex-wrap">
+  <button type="button" id="openImportBtn" class="btn btn-outline-primary">
+    <i class="fas fa-file-upload me-1"></i> Import Excel
+  </button>
+  <button type="button" class="btn btn-jsw" data-bs-toggle="modal" data-bs-target="#addModal">
+    <i class="fas fa-plus me-1"></i> Add Contractor
+  </button>
+</div>
+{% endif %}
+
+{% if is_admin %}
+<!-- Employees by Contractor — click a card to see that contractor's employee list -->
+<div class="card mb-3">
+  <div class="card-header"><i class="fas fa-hard-hat me-2"></i>Employees by Contractor</div>
+  <div class="card-body">
+    <div class="row g-3">
+      {% for ctr in contractors %}
+        {% if contractor_emp_counts.get(ctr.name) %}
+        <div class="col-md-3 col-sm-4 col-6">
+          <button type="button" class="btn btn-outline-success w-100 py-3"
+                  onclick="openContractorEmployees('{{ ctr.name|e }}')">
+            <i class="fas fa-users d-block mb-1"></i>
+            {{ ctr.name }}
+            <span class="badge bg-secondary ms-1">{{ contractor_emp_counts.get(ctr.name, 0) }}</span>
+          </button>
+        </div>
+        {% endif %}
+      {% endfor %}
+      {% if not contractor_emp_counts %}
+        <div class="text-muted small">No employees currently linked to a contractor.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if is_admin %}
+<!-- Shared popup for "Employees by Contractor" cards — content loaded via AJAX per click -->
+<div class="modal fade" id="contractorEmployeesModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-hard-hat me-2"></i><span id="ctrEmpModalTitle">Contractor</span> — Employees</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" id="ctrEmpModalBody">
+        <div class="text-center text-muted py-5"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if is_admin and can_edit %}
+<!-- Shared Edit Employee modal — used by every row in the "Employees by Contractor" popup.
+     Kept as a SIBLING of contractorEmployeesModal (not nested inside it): Bootstrap does not
+     support two modals open at once, which is why the old per-row nested modal made Edit/Delete
+     stop responding. openSharedEmpEditModal() below hides the contractor popup first, then shows this one. -->
+<div class="modal fade" id="sharedEmpEditModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Employee</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" id="sharedEmpEditForm">
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label">Emp Code</label>
+            <input type="text" name="emp_code" id="sharedEmpEditCode" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Name</label>
+            <input type="text" name="name" id="sharedEmpEditName" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Department</label>
+            <select name="department" id="sharedEmpEditDept" class="form-select">
+              <option value="">-- Select --</option>
+              {% for d in departments %}
+              <option value="{{ d.name }}">{{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Contractor</label>
+            <select name="contractor" id="sharedEmpEditContractor" class="form-select">
+              <option value="">-- None --</option>
+              {% for c in contractors %}
+              <option value="{{ c.name }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Designation</label>
+            <input type="text" name="designation" id="sharedEmpEditDesignation" class="form-control">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Status</label>
+            <select name="status" id="sharedEmpEditStatus" class="form-select">
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-jsw">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if can_create %}
+<!-- Add Contractor Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Contractor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('employees.add_contractor') }}">
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label">Contractor Name *</label>
+            <input type="text" name="name" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Contact</label>
+            <input type="text" name="contact" class="form-control">
+          </div>
+          {% if is_admin %}
+          <div class="mb-2">
+            <label class="form-label">Department</label>
+            <select name="department" class="form-select" id="addDept">
+              <option value="">-- Select Department --</option>
+              {% for d in departments %}
+              <option value="{{ d.name }}">{{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-jsw">
+            <i class="fas fa-save me-1"></i>Save
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===== IMPORT EXCEL MODAL ===== -->
+<div class="modal fade" id="importExcelModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#1A3A5C; color:#fff;">
+        <h5 class="modal-title" id="importModalLabel">
+          <i class="fas fa-file-upload me-2"></i>Import Contractors from Excel
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+
+      <form method="POST" action="{{ url_for('employees.import_contractors_excel') }}"
+            enctype="multipart/form-data" id="importForm">
+        <div class="modal-body">
+
+          <div class="alert alert-info mb-3">
+            <strong><i class="fas fa-info-circle me-1"></i> Any Excel format is accepted.</strong>
+            <div class="mt-2 small">
+              Columns detected automatically by header name. Accepted headers:<br>
+              <code>Contractor Name / Contact / Department</code><br>
+              <span class="text-muted">No headers? Positional order used: A=Name, B=Contact, C=Department</span>
+            </div>
+          </div>
+
+          <div class="import-zone" id="dropZone">
+            <i class="fas fa-cloud-upload-alt d-block mb-2"></i>
+            <div class="fw-semibold">Click here to select your Excel file</div>
+            <div class="text-muted small mt-1">or drag &amp; drop — supports .xlsx and .xls</div>
+            <div id="fileNameDisplay"></div>
+          </div>
+
+          <input type="file" name="excel_file" id="excelFileInput" class="d-none" accept=".xlsx,.xls">
+
+        </div>
+        <div class="modal-footer">
+          <a href="{{ url_for('employees.export_contractors_excel') }}" class="btn btn-outline-secondary me-auto" target="_blank">
+            <i class="fas fa-download me-1"></i> Download Template
+          </a>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success" id="importSubmitBtn" disabled>
+            <i class="fas fa-upload me-1"></i> Import Now
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+<script>
+// ── 1. Searchable dropdowns (Choices.js) ────────────────────
+function initChoices(selector) {
+  document.querySelectorAll(selector).forEach(function (el) {
+    if (!el._choices) {
+      el._choices = new Choices(el, {
+        searchEnabled: true,
+        itemSelectText: '',
+        shouldSort: false,
+        searchPlaceholderValue: 'Search...'
+      });
+    }
+  });
+}
+var addModalEl = document.getElementById('addModal');
+if (addModalEl) {
+  addModalEl.addEventListener('shown.bs.modal', function () {
+    initChoices('#addDept');
+  });
+}
+
+// ── 2. Contractor employees popup (AJAX-loaded per click) ──
+var ctrEmpModalEl = document.getElementById('contractorEmployeesModal');
+var ctrEmpModalInstance = ctrEmpModalEl ? bootstrap.Modal.getOrCreateInstance(ctrEmpModalEl) : null;
+var reopenCtrEmpModalAfterEdit = false;
+
+function openContractorEmployees(name) {
+  document.getElementById('ctrEmpModalTitle').textContent = name;
+  var body = document.getElementById('ctrEmpModalBody');
+  body.innerHTML = '<div class="text-center text-muted py-5"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</div>';
+  ctrEmpModalInstance.show();
+
+  fetch('{{ url_for("employees.by_contractor_partial") }}?name=' + encodeURIComponent(name))
+    .then(function (res) { return res.text(); })
+    .then(function (html) {
+      body.innerHTML = html;
+      initCtrEmpSearch();   // ← attach the search listener AFTER the HTML is in the DOM
+    })
+    .catch(function () {
+      body.innerHTML = '<div class="p-3 text-danger">Failed to load employees. Please try again.</div>';
+    });
+}
+
+// ── 2b. Edit Employee — uses ONE shared modal instead of one nested modal
+//        per row. Bootstrap does not support two modals open at the same
+//        time, which is why Edit/Delete used to stop responding inside the
+//        contractor-employees popup. Here we hide that popup first, show
+//        this modal, then bring the popup back if the user cancels.
+var empEditBaseUrl = "{{ url_for('employees.edit', id=0) }}".slice(0, -1); // strip the placeholder "0"
+var sharedEmpEditModalEl = document.getElementById('sharedEmpEditModal');
+var sharedEmpEditModalInstance = sharedEmpEditModalEl ? bootstrap.Modal.getOrCreateInstance(sharedEmpEditModalEl) : null;
+
+function openSharedEmpEditModal(id, empCode, name, department, contractor, designation, status) {
+  if (!sharedEmpEditModalInstance) return;
+
+  function fillAndShow() {
+    document.getElementById('sharedEmpEditForm').action = empEditBaseUrl + id;
+    document.getElementById('sharedEmpEditCode').value = empCode || '';
+    document.getElementById('sharedEmpEditName').value = name || '';
+    document.getElementById('sharedEmpEditDept').value = department || '';
+    document.getElementById('sharedEmpEditContractor').value = contractor || '';
+    document.getElementById('sharedEmpEditDesignation').value = designation || '';
+    document.getElementById('sharedEmpEditStatus').value = status || 'Active';
+    sharedEmpEditModalInstance.show();
+  }
+
+  var ctrEmpModalOpen = !!(ctrEmpModalEl && ctrEmpModalEl.classList.contains('show'));
+  if (ctrEmpModalOpen) {
+    // Don't call show() on the next modal in the same tick as hide() — Bootstrap's
+    // fade-out transition and backdrop cleanup are asynchronous, and racing them is
+    // what caused the "dim backdrop with no visible dialog" bug. Wait for the
+    // popup to fully finish hiding first.
+    reopenCtrEmpModalAfterEdit = true;
+    ctrEmpModalEl.addEventListener('hidden.bs.modal', function onHidden() {
+      ctrEmpModalEl.removeEventListener('hidden.bs.modal', onHidden);
+      fillAndShow();
+    }, { once: true });
+    ctrEmpModalInstance.hide();
+  } else {
+    reopenCtrEmpModalAfterEdit = false;
+    fillAndShow();
+  }
+}
+
+// Event delegation: catches the Edit button even though its row is loaded via AJAX
+document.addEventListener('click', function (ev) {
+  var btn = ev.target.closest('.ctr-emp-edit-btn');
+  if (!btn) return;
+  openSharedEmpEditModal(
+    btn.dataset.id,
+    btn.dataset.empCode,
+    btn.dataset.name,
+    btn.dataset.department,
+    btn.dataset.contractor,
+    btn.dataset.designation,
+    btn.dataset.status
+  );
+});
+
+if (sharedEmpEditModalEl) {
+  sharedEmpEditModalEl.addEventListener('hidden.bs.modal', function () {
+    if (reopenCtrEmpModalAfterEdit) {
+      reopenCtrEmpModalAfterEdit = false;
+      ctrEmpModalInstance.show();
+    }
+  });
+}
+
+// ── 3. Instant search inside the contractor-employees popup ──
+function initCtrEmpSearch() {
+  var input = document.getElementById('ctrEmpSearchInput');
+  var clearBtn = document.getElementById('ctrEmpSearchClear');
+  var tbody = document.getElementById('ctrEmpTableBody');
+  if (!input || !tbody) return;
+
+  function filterRows() {
+    var q = input.value.trim().toLowerCase();
+    var rows = tbody.querySelectorAll('tr.ctr-emp-row');
+    var visibleCount = 0;
+
+    rows.forEach(function (row) {
+      var match = row.textContent.toLowerCase().indexOf(q) !== -1;
+      row.style.display = match ? '' : 'none';
+      if (match) visibleCount++;
+    });
+
+    var existingNoResults = tbody.querySelector('.no-results-row');
+    if (visibleCount === 0 && q !== '') {
+      if (!existingNoResults) {
+        var tr = document.createElement('tr');
+        tr.className = 'no-results-row';
+        tr.innerHTML = '<td colspan="6" class="text-center text-muted py-4">' +
+          '<i class="fas fa-search me-1"></i>No employees match "' +
+          input.value.replace(/</g, '&lt;') + '"</td>';
+        tbody.appendChild(tr);
+      }
+    } else if (existingNoResults) {
+      existingNoResults.remove();
+    }
+  }
+
+  input.addEventListener('input', filterRows);
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function () {
+      input.value = '';
+      filterRows();
+      input.focus();
+    });
+  }
+}
+
+// ── 4. Import Excel Modal ───────────────
+var importModalEl = document.getElementById('importExcelModal');
+if (importModalEl) {
+  var importModal   = new bootstrap.Modal(importModalEl);
+  var fileInput     = document.getElementById('excelFileInput');
+  var dropZone      = document.getElementById('dropZone');
+  var fileDisplay   = document.getElementById('fileNameDisplay');
+  var submitBtn     = document.getElementById('importSubmitBtn');
+  var openBtn       = document.getElementById('openImportBtn');
+
+  if (openBtn) {
+    openBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      importModal.show();
+    });
+  }
+
+  dropZone.addEventListener('click', function () {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', function () {
+    if (this.files && this.files.length > 0) {
+      showFile(this.files[0]);
+    }
+  });
+
+  dropZone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    this.classList.add('dragover');
+  });
+  dropZone.addEventListener('dragleave', function () {
+    this.classList.remove('dragover');
+  });
+
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    this.classList.remove('dragover');
+    var files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      var dt = new DataTransfer();
+      dt.items.add(files[0]);
+      fileInput.files = dt.files;
+      showFile(files[0]);
+    }
+  });
+
+  function showFile(file) {
+    var ext = file.name.split('.').pop().toLowerCase();
+    if (ext !== 'xlsx' && ext !== 'xls') {
+      fileDisplay.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle me-1"></i>Only .xlsx or .xls files allowed.</span>';
+      submitBtn.disabled = true;
+      return;
+    }
+    fileDisplay.innerHTML =
+      '<i class="fas fa-check-circle text-success me-1"></i>' +
+      '<strong>' + file.name + '</strong> (' + (file.size / 1024).toFixed(1) + ' KB)';
+    submitBtn.disabled = false;
+  }
+
+  importModalEl.addEventListener('hidden.bs.modal', function () {
+    fileInput.value = '';
+    fileDisplay.innerHTML = '';
+    submitBtn.disabled = true;
+    dropZone.classList.remove('dragover');
+  });
+}
+</script>
+{% endblock %}

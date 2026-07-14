@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login - PPE Management System</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<style>
+body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    /* Professional blue gradient */
+    background: linear-gradient(135deg,
+        #12355B 0%,
+        #2E6BB7 45%,
+        #4A5568 100%);
+
+    font-family: "Segoe UI", sans-serif;
+}
+
+.login-card {
+    width: 100%;
+    max-width: 420px;
+    padding: 40px;
+    border-radius: 18px;
+
+    /* Login card gradient */
+    background: linear-gradient(
+        145deg,
+        #ffffff 0%,
+        #f5f9ff 50%,
+        #e7f1ff 100%
+    );
+
+    border: 1px solid rgba(255,255,255,0.3);
+
+    box-shadow:
+        0 20px 60px rgba(0,0,0,0.30);
+
+    transition: all 0.3s ease;
+}
+
+.login-card:hover {
+    transform: translateY(-5px);
+    box-shadow:
+        0 30px 70px rgba(0,0,0,0.35);
+}
+.form-control:focus { border-color:#2563A8; box-shadow: 0 0 0 3px rgba(37,99,168,0.15); }
+.user-hint { background:#EEF2FF; border-radius:8px; padding:12px; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <div class="text-center mb-4">
+    <div class="login-logo">⚓</div>
+    <h4 style="color:#1A3A5C; font-weight:800;">PPE & Equipment</h4>
+    <p class="text-muted small">JSW Dharamtar Port Operations Safety Management</p>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} py-2 small">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <form method="POST">
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Username</label>
+      <div class="input-group">
+        <span class="input-group-text"><i class="fas fa-user text-muted"></i></span>
+        <input type="text" name="username" class="form-control" placeholder="Enter username" required autofocus>
+      </div>
+    </div>
+    <div class="mb-2">
+      <label class="form-label fw-semibold">Password</label>
+      <div class="input-group">
+        <span class="input-group-text"><i class="fas fa-lock text-muted"></i></span>
+        <input type="password" name="password" class="form-control" placeholder="Enter password" required>
+      </div>
+    </div>
+
+    <div class="text-end mb-3">
+      <a href="{{ url_for('password_reset.forgot_password') }}" class="small">Forgot password?</a>
+    </div>
+
+    <button type="submit" class="btn btn-login btn-primary w-100 text-white">
+      <i class="fas fa-sign-in-alt me-2"></i>Sign In
+    </button>
+  </form>
+
+
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

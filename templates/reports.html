@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block title %}Reports{% endblock %}
+{% block page_title %}Reports & KPI{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-header"><i class="fas fa-chart-bar me-2"></i>Generate Report</div>
+  <div class="card-body">
+    <form method="POST" action="{{ url_for('reports.view') }}" id="reportForm">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Report Type</label>
+          <select name="report_type" class="form-select" id="reportType" onchange="toggleFilter()">
+            <option value="employee">Employee-wise Issue History</option>
+            <option value="department">Department-wise Consumption</option>
+            <option value="contractor">Contractor-wise Consumption</option>
+            <option value="item">Item-wise Consumption</option>
+            <option value="monthly">Monthly Trend Report</option>
+            <option value="stock">Current Stock Status</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">From Date</label>
+          <input type="date" name="from_date" class="form-control" value="{{ from_date }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">To Date</label>
+          <input type="date" name="to_date" class="form-control" value="{{ to_date }}">
+        </div>
+        <div class="col-md-2" id="empFilter" style="display:none">
+          <label class="form-label fw-semibold">Employee</label>
+          <select name="filter_id" class="form-select">
+            <option value="">All Employees</option>
+            {% for e in employees %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-12">
+          <button type="submit" class="btn btn-jsw btn-primary"><i class="fas fa-eye me-1"></i>View Report</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="row g-3 mt-2">
+  <div class="col-md-3">
+    <div class="card text-center p-3 report-card" role="button" onclick="openReport('employee')">
+      <i class="fas fa-user fa-2x text-primary mb-2"></i>
+      <h6>Employee History</h6>
+      <small class="text-muted">Complete issue history per employee</small>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-center p-3 report-card" role="button" onclick="openReport('department')">
+      <i class="fas fa-building fa-2x text-success mb-2"></i>
+      <h6>Department Report</h6>
+      <small class="text-muted">PPE consumption by department</small>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-center p-3 report-card" role="button" onclick="openReport('contractor')">
+      <i class="fas fa-hard-hat fa-2x text-warning mb-2"></i>
+      <h6>Contractor Report</h6>
+      <small class="text-muted">Contractor-wise PPE usage</small>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-center p-3 report-card" role="button" onclick="openReport('stock')">
+      <i class="fas fa-boxes fa-2x text-danger mb-2"></i>
+      <h6>Stock Status</h6>
+      <small class="text-muted">Current inventory levels</small>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function toggleFilter() {
+  const type = document.getElementById('reportType').value;
+  document.getElementById('empFilter').style.display = type === 'employee' ? 'block' : 'none';
+}
+
+function openReport(type) {
+  document.getElementById('reportType').value = type;
+  toggleFilter();
+  document.getElementById('reportForm').submit();
+}
+</script>
+<style>
+.report-card { cursor: pointer; transition: box-shadow .15s ease, transform .15s ease; }
+.report-card:hover { box-shadow: 0 .25rem .75rem rgba(0,0,0,.1); transform: translateY(-2px); }
+</style>
+{% endblock %}

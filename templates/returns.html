@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% block title %}Returns{% endblock %}
+{% block page_title %}Return Register{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-clock me-2"></i>Pending Returns</div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead><tr><th>Issue ID</th><th>Emp Code</th><th>Name</th><th>Dept</th><th>Item</th><th>Issued Qty</th><th>Issue Date</th><th>Due Date</th><th>Action</th></tr></thead>
+            <tbody>
+              {% for r in pending %}
+              <tr class="{{ 'table-danger' if r.return_due_date and r.return_due_date < today.strftime('%Y-%m-%d') else '' }}">
+                <td><code>#{{ r.id }}</code></td>
+                <td>{{ r.emp_code }}</td>
+                <td>{{ r.emp_name }}</td>
+                <td>{{ r.department }}</td>
+                <td>{{ r.item_name }}</td>
+                <td>{{ r.qty }}</td>
+                <td>{{ r.issue_date }}</td>
+                <td>{{ r.return_due_date or '-' }}</td>
+                <td>
+                  <button class="btn btn-sm btn-success" data-bs-toggle="modal"
+                    data-bs-target="#returnModal{{ r.id }}">
+                    <i class="fas fa-undo me-1"></i>Record Return
+                  </button>
+                </td>
+              </tr>
+              <!-- Return Modal -->
+              <div class="modal fade" id="returnModal{{ r.id }}" tabindex="-1">
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <div class="modal-header"><h5 class="modal-title">Record Return</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                    <form method="POST" action="{{ url_for('returns.add') }}">
+                      <input type="hidden" name="issue_id" value="{{ r.id }}">
+                      <div class="modal-body">
+                        <div class="alert alert-info py-2 small">
+                          <strong>{{ r.emp_name }}</strong> returning <strong>{{ r.item_name }}</strong>
+                        </div>
+                        <div class="mb-2"><label class="form-label">Return Date</label><input type="date" name="return_date" class="form-control" value="{{ today }}"></div>
+                        <div class="mb-2"><label class="form-label">Quantity Returned</label><input type="number" name="qty" class="form-control" value="{{ r.qty }}" min="1" max="{{ r.qty }}"></div>
+                        <div class="mb-2"><label class="form-label">Condition</label>
+                          <select name="condition" class="form-select">
+                            <option value="Good">Good</option>
+                            <option value="Fair">Fair</option>
+                            <option value="Damaged">Damaged</option>
+                            <option value="Scrapped">Scrapped</option>
+                          </select></div>
+                        <div class="mb-2"><label class="form-label">Remarks</label><textarea name="remarks" class="form-control" rows="2"></textarea></div>
+                      </div>
+                      <div class="modal-footer"><button type="submit" class="btn btn-success"><i class="fas fa-save me-1"></i>Save Return</button></div>
+                    </form>
+                  </div>
+                </div>
+              </div>
+              {% else %}
+              <tr><td colspan="9" class="text-center text-success py-4"><i class="fas fa-check-circle me-2"></i>No pending returns</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header"><i class="fas fa-check-double me-2"></i>Return History</div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead><tr><th>Date</th><th>Employee</th><th>Item</th><th>Qty</th><th>Condition</th><th>Received By</th></tr></thead>
+            <tbody>
+              {% for r in returns %}
+              <tr>
+                <td>{{ r.return_date }}</td>
+                <td>{{ r.emp_name }}</td>
+                <td>{{ r.item_name }}</td>
+                <td>{{ r.qty }}</td>
+                <td><span class="badge {{ 'bg-success' if r.condition=='Good' else 'bg-warning text-dark' if r.condition=='Fair' else 'bg-danger' }}">{{ r.condition }}</span></td>
+                <td>{{ r.received_by }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6" class="text-center text-muted py-4">No returns recorded yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

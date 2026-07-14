@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% block title %}Expiry Tracking{% endblock %}
+{% block page_title %}PPE Expiry Tracking{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-end mb-3">
+  <button class="btn btn-jsw btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">
+    <i class="fas fa-plus me-1"></i>Add Expiry Record
+  </button>
+</div>
+
+<div class="card">
+  <div class="card-header"><i class="fas fa-calendar-times me-2"></i>Expiry Records</div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead><tr><th>Item</th><th>Batch No</th><th>Mfg Date</th><th>Expiry Date</th><th>Qty</th><th>Status</th><th>Days Left</th><th>Action</th></tr></thead>
+        <tbody>
+          {% for r in records %}
+          {% set days_left = (r.expiry_date|string|replace('-','')|int - today|replace('-','')|int) %}
+          <tr class="{{ 'expiry-danger' if r.expiry_date < today else 'expiry-warning' if r.expiry_date <= (today[:7]+'-'+('%02d'|format((today[8:]|int)+30))) else '' }}">
+            <td><strong>{{ r.item_name }}</strong><br><small class="text-muted">{{ r.item_code }}</small></td>
+            <td>{{ r.batch_no or '-' }}</td>
+            <td>{{ r.manufacture_date or '-' }}</td>
+            <td><strong>{{ r.expiry_date }}</strong></td>
+            <td>{{ r.qty }}</td>
+            <td><span class="badge {{ 'bg-success' if r.status=='Active' else 'bg-secondary' }}">{{ r.status }}</span></td>
+            <td>
+              {% if r.expiry_date < today %}
+                <span class="badge bg-danger">EXPIRED</span>
+              {% else %}
+                {{ r.expiry_date }}
+              {% endif %}
+            </td>
+            <td>
+              {% if r.status == 'Active' %}
+              <a href="{{ url_for('expiry.dispose', id=r.id) }}" class="btn btn-sm btn-outline-danger"
+                 onclick="return confirm('Mark as disposed?')"><i class="fas fa-trash"></i></a>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="text-center text-muted py-4">No expiry records found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Add Expiry Record</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <form method="POST" action="{{ url_for('expiry.add') }}">
+        <div class="modal-body">
+          <div class="mb-2"><label class="form-label">Item *</label>
+            <select name="item_id" class="form-select" required>
+              <option value="">-- Select Item --</option>
+              {% for item in items %}<option value="{{ item.id }}">{{ item.item_name }}</option>{% endfor %}
+            </select></div>
+          <div class="mb-2"><label class="form-label">Batch Number</label><input type="text" name="batch_no" class="form-control"></div>
+          <div class="mb-2"><label class="form-label">Manufacture Date</label><input type="date" name="manufacture_date" class="form-control"></div>
+          <div class="mb-2"><label class="form-label">Expiry Date *</label><input type="date" name="expiry_date" class="form-control" required></div>
+          <div class="mb-2"><label class="form-label">Quantity</label><input type="number" name="qty" class="form-control" min="1"></div>
+        </div>
+        <div class="modal-footer"><button type="submit" class="btn btn-jsw btn-primary">Save</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

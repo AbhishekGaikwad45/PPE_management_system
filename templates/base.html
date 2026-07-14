@@ -1,0 +1,446 @@
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}PPE & Equipment Management{% endblock %} | JSW Port Operations</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+:root{
+    --jsw-blue:#12355B;
+    --jsw-blue-light:#2E6BB7;
+    --jsw-grey:#4A5568;
+    --jsw-accent:#F59E0B;
+
+    --sidebar-width:250px;
+
+    --primary-gradient:linear-gradient(135deg,#0F2A47,#184D7A,#2E7BC6);
+
+    --card-gradient:linear-gradient(135deg,#17375E,#295D96);
+
+    --button-gradient:linear-gradient(135deg,#1A4E84,#327DCC);
+
+    --page-gradient:linear-gradient(180deg,#EEF5FC,#F8FBFF,#FFFFFF);
+}
+  body{
+    background:var(--page-gradient);
+    font-family:'Segoe UI',sans-serif;
+}
+.sidebar{
+
+    width:var(--sidebar-width);
+
+    background:linear-gradient(
+        180deg,
+        #071B34 0%,
+        #12355B 30%,
+        #1C578C 70%,
+        #2B7BC5 100%
+    );
+
+    height:100vh;
+
+    position:fixed;
+
+    top:0;
+
+    left:0;
+
+    overflow-y:auto;
+
+    z-index:999;
+
+    transition:.3s;
+
+    box-shadow:10px 0 30px rgba(0,0,0,.18);
+}
+.sidebar .logo-area{
+
+    background: linear-gradient(
+        135deg,
+        rgba(126, 207, 254, 0.98) 0%,
+        rgba(123, 194, 248, 0.96) 30%,
+        rgba(127, 173, 213, 0.94) 70%,
+        rgba(97, 141, 182, 0.92) 100%
+    );
+
+    backdrop-filter: blur(12px);
+
+    padding:20px;
+
+    border-bottom:1px solid rgba(180,210,240,.8);
+}
+  .sidebar .logo-area h5 { color: #fff; font-weight:700; font-size:14px; margin:4px 0 0; }
+  .sidebar .logo-area small { color: rgba(255,255,255,0.6); font-size:11px; }
+  .sidebar .nav-section { padding: 8px 0; }
+  .sidebar .nav-section-title {
+    color: rgba(255,255,255,0.4); font-size:10px; font-weight:700;
+    letter-spacing:1.5px; padding: 8px 16px 4px; text-transform:uppercase;
+  }
+.sidebar .nav-link{
+
+    color:#DDEBFF;
+
+    padding:10px 18px;
+
+    margin:4px 10px;
+
+    border-radius:10px;
+
+    display:flex;
+
+    align-items:center;
+
+    gap:10px;
+
+    font-size:13px;
+
+    transition:.3s;
+
+    border-left:none;
+}
+.sidebar .nav-link:hover{
+
+    color:#fff;
+
+    background:linear-gradient(
+        90deg,
+        rgba(70,145,255,.45),
+        rgba(255,255,255,.10)
+    );
+
+    transform:translateX(6px);
+
+    box-shadow:0 6px 15px rgba(0,0,0,.18);
+}
+
+.sidebar .nav-link.active{
+
+    color:#fff;
+
+    background:linear-gradient(
+        90deg,
+        #2F80ED,
+        #56CCF2
+    );
+
+    box-shadow:0 8px 20px rgba(47,128,237,.35);
+
+    font-weight:600;
+}
+  .sidebar .nav-link i { width: 18px; text-align:center; font-size:14px; }
+  .main-content { margin-left: var(--sidebar-width); padding: 0; min-height:100vh; }
+.topbar{
+
+    background:linear-gradient(
+        90deg,
+        #ffffff,
+        #f3f8ff
+    );
+
+    border-bottom:1px solid #d9e7f7;
+
+    box-shadow:0 6px 20px rgba(0,0,0,.06);
+
+    padding:12px 24px;
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    position:sticky;
+
+    top:0;
+
+    z-index:100;
+}
+  .topbar h4 { margin:0; color: var(--jsw-blue); font-weight:700; font-size:18px; }
+  .page-body { padding: 24px; }
+ .card{
+
+    border:none;
+
+    border-radius:16px;
+
+    background:linear-gradient(
+        180deg,
+        #ffffff,
+        #f8fbff
+    );
+
+    box-shadow:
+        0 10px 25px rgba(0,0,0,.08);
+}
+  .card-header{
+
+    background:linear-gradient(
+        90deg,
+        #12355B,
+        #2B6CB0
+    );
+
+    color:#fff;
+
+    border-radius:16px 16px 0 0 !important;
+
+    font-weight:600;
+}
+.kpi-card{
+
+    background:linear-gradient(
+        145deg,
+        #ffffff,
+        #f4f9ff
+    );
+
+    border-radius:16px;
+
+    padding:22px;
+
+    text-align:center;
+
+    border:none;
+
+    box-shadow:
+        0 12px 30px rgba(0,0,0,.08);
+
+    transition:.3s;
+
+    overflow:hidden;
+}
+
+.kpi-card:hover{
+
+    transform:translateY(-5px);
+
+    box-shadow:
+        0 18px 35px rgba(0,0,0,.15);
+}
+  .kpi-card .kpi-value { font-size:32px; font-weight:800; color:var(--jsw-blue); }
+  .kpi-card .kpi-label { font-size:12px; color:#718096; text-transform:uppercase; letter-spacing:1px; }
+ 
+  .kpi-card.success{
+    border-bottom:4px solid #22C55E;
+}
+
+.kpi-card.warning{
+    border-bottom:4px solid #F59E0B;
+}
+
+.kpi-card.danger{
+    border-bottom:4px solid #EF4444;
+}
+  .alert-badge { background: #FFF3CD; border-left: 4px solid #F59E0B; border-radius:8px; padding:10px 16px; }
+  .table thead th{
+
+    background:linear-gradient(
+        90deg,
+        #1A4A7A,
+        #3478C5
+    );
+
+    color:white;
+
+    border:none;
+
+    font-size:12px;
+
+    font-weight:700;
+
+    text-transform:uppercase;
+}
+  .btn-jsw{
+
+    background:linear-gradient(
+        135deg,
+        #174E82,
+        #3489E8
+    );
+
+    border:none;
+
+    color:white;
+}
+
+.btn-jsw:hover{
+
+    background:linear-gradient(
+        135deg,
+        #123A61,
+        #2972C8
+    );
+
+    color:white;
+}
+  .btn-jsw:hover { background: var(--jsw-blue-light); color:#fff; }
+  .badge-ppe { background:#DBEAFE; color:#1E40AF; }
+  .badge-equip { background:#D1FAE5; color:#065F46; }
+  .status-issued { background:#FEF3C7; color:#92400E; }
+  .status-returned { background:#D1FAE5; color:#065F46; }
+  .expiry-danger { background:#FEE2E2; color:#991B1B; }
+  .expiry-warning { background:#FEF3C7; color:#92400E; }
+  @media (max-width: 768px) {
+    .sidebar { transform: translateX(-100%); }
+    .sidebar.show { transform: translateX(0); }
+    .main-content { margin-left: 0; }
+  }
+  .sidebar::-webkit-scrollbar{
+
+    width:8px;
+}
+
+.sidebar::-webkit-scrollbar-track{
+
+    background:rgba(255,255,255,.05);
+}
+
+.sidebar::-webkit-scrollbar-thumb{
+
+    background:linear-gradient(
+        180deg,
+        #4FA6FF,
+        #2F80ED
+    );
+
+    border-radius:20px;
+}
+  </style>
+  {% block extra_css %}{% endblock %}
+  </head>
+  <body>
+
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div class="logo-area">
+
+<img
+    src="https://jswin.s3.ap-south-1.amazonaws.com/jswinfrastructure/uploads/2026/06/JSW-Infra-Logo2.svg"
+    alt="JSW Logo"
+    style="
+        width:180px;
+        height:auto;
+        display:block;
+        margin:0 auto 15px auto;
+        object-fit:contain;
+        filter:drop-shadow(0 4px 8px rgba(0,0,0,.25));
+    ">
+
+    <h5>PPE & Equipment</h5>
+
+    <small>JSW Dharamtar Port Operations Safety</small>
+
+</div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Overview</div>
+      <a class="nav-link {% if request.endpoint == 'dashboard.index' %}active{% endif %}" href="{{ url_for('dashboard.index') }}">
+        <i class="fas fa-tachometer-alt"></i> Dashboard
+      </a>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Masters</div>
+      <a class="nav-link {% if 'employees' in request.endpoint %}active{% endif %}" href="{{ url_for('employees.index') }}">
+        <i class="fas fa-users"></i> Employees
+      </a>
+      <a class="nav-link {% if request.endpoint == 'employees.contractors' %}active{% endif %}" href="{{ url_for('employees.contractors') }}">
+        <i class="fas fa-hard-hat"></i> Contractors
+      </a>
+      <a class="nav-link {% if 'items' in request.endpoint %}active{% endif %}" href="{{ url_for('items.index') }}">
+        <i class="fas fa-boxes"></i> Item Master
+      </a>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Transactions</div>
+      <a class="nav-link {% if request.endpoint == 'stock.index' %}active{% endif %}" href="{{ url_for('stock.index') }}">
+        <i class="fas fa-truck-loading"></i> Stock Receipt
+      </a>
+      <a class="nav-link {% if 'issues' in request.endpoint %}active{% endif %}" href="{{ url_for('issues.index') }}">
+        <i class="fas fa-hand-holding"></i> Issue PPE
+      </a>
+      <a class="nav-link {% if 'returns' in request.endpoint %}active{% endif %}" href="{{ url_for('returns.index') }}">
+        <i class="fas fa-undo"></i> Returns
+      </a>
+        <a class="nav-link {% if 'contractor_issues' in request.endpoint %}active{% endif %}" href="{{ url_for('contractor_issues.index') }}">
+    <i class="fas fa-hard-hat"></i> Contractor PPE Issue
+  </a>
+      <a class="nav-link {% if request.endpoint == 'stock.ledger' %}active{% endif %}" href="{{ url_for('stock.ledger') }}">
+        <i class="fas fa-book"></i> Stock Ledger
+      </a>
+    </div>
+
+    <div class="nav-section">
+      <!-- <div class="nav-section-title">Safety Tracking</div>
+      <a class="nav-link {% if 'expiry' in request.endpoint %}active{% endif %}" href="{{ url_for('expiry.index') }}">
+        <i class="fas fa-calendar-times"></i> Expiry Tracking
+      </a> -->
+      <a class="nav-link {% if 'calibration' in request.endpoint %}active{% endif %}" href="{{ url_for('calibration.index') }}">
+        <i class="fas fa-tools"></i> Calibration
+      </a>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Reports</div>
+      <a class="nav-link {% if 'reports' in request.endpoint %}active{% endif %}" href="{{ url_for('reports.index') }}">
+        <i class="fas fa-chart-bar"></i> Reports & KPI
+      </a>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Account</div>
+      <a class="nav-link" href="{{ url_for('auth.logout') }}">
+        <i class="fas fa-sign-out-alt"></i> Logout
+      </a>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main-content">
+    <div class="topbar">
+      <div class="d-flex align-items-center gap-3">
+        <button class="btn btn-sm btn-outline-secondary d-md-none" onclick="document.getElementById('sidebar').classList.toggle('show')">
+          <i class="fas fa-bars"></i>
+        </button>
+        <h4>{% block page_title %}{% endblock %}</h4>
+      </div>
+      <div class="d-flex align-items-center gap-3">
+    {% if session.get('role') in ['Admin', 'Super Admin'] %}
+    <a href="{{ url_for('users_admin.index') }}" class="btn btn-sm btn-jsw">
+        <i class="fas fa-user-shield me-1"></i> Admin
+    </a>
+    {% endif %}
+
+    <span class="badge bg-secondary">{{ session.get('role','') }}</span>
+
+    <span class="text-muted small">
+        <i class="fas fa-user me-1"></i>{{ session.get('full_name','') }}
+    </span>
+
+    <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline-danger">
+        <i class="fas fa-sign-out-alt"></i>
+    </a>
+</div>
+    </div>
+
+    <div class="page-body">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  {% block extra_js %}{% endblock %}
+  </body>
+  </html>

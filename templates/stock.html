@@ -1,0 +1,199 @@
+{% extends 'base.html' %}
+{% block title %}Stock Receipt{% endblock %}
+{% block page_title %}Stock Receipt (GRN){% endblock %}
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body d-flex flex-wrap align-items-end gap-3">
+    <div>
+      <label class="form-label mb-1">From Date</label>
+      <input type="date" id="filterFrom" class="form-control" value="{{ from_date }}">
+    </div>
+    <div>
+      <label class="form-label mb-1">To Date</label>
+      <input type="date" id="filterTo" class="form-control" value="{{ to_date }}">
+    </div>
+    <button type="button" class="btn btn-primary" onclick="applyDateFilter()">
+      <i class="fas fa-filter me-1"></i>Apply
+    </button>
+    <button type="button" class="btn btn-outline-secondary" onclick="resetDateFilter()">
+      Reset
+    </button>
+    <button type="button" class="btn btn-success ms-auto" onclick="downloadReport()">
+      <i class="fas fa-download me-1"></i>Download Excel
+    </button>
+  </div>
+</div>
+
+<!-- Top Buttons -->
+{% if can_create %}
+<div class="d-flex justify-content-end mb-3 gap-2 flex-wrap">
+  <button type="button" class="btn btn-jsw" data-bs-toggle="modal" data-bs-target="#receiveStockModal">
+    <i class="fas fa-plus me-1"></i> Receive Stock
+  </button>
+</div>
+{% endif %}
+
+<!-- Receipts Table -->
+<div class="card">
+  <div class="card-header"><i class="fas fa-history me-2"></i>Recent Receipts</div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Date</th><th>GRN No</th><th>Item</th><th>Qty</th><th>Received By</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in receipts %}
+          <tr>
+            <td>{{ r.receipt_date }}</td>
+            <td>{{ r.grn_no or '-' }}</td>
+            <td>{{ r.item_name }}</td>
+            <td><span class="badge bg-success">+{{ r.qty }}</span></td>
+            <td>{{ r.received_by or '-' }}</td>
+            <td>
+              {% if can_edit %}
+              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editModal{{ r.id }}">
+                <i class="fas fa-edit"></i>
+              </button>
+              {% endif %}
+              {% if can_delete %}
+              <form method="POST" action="{{ url_for('stock.delete', id=r.id) }}" class="d-inline"
+                    onsubmit="return confirm('Delete this receipt? Stock will be reduced by {{ r.qty }}.');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </form>
+              {% endif %}
+              {% if not can_edit and not can_delete %}
+              <span class="text-muted small">View only</span>
+              {% endif %}
+            </td>
+          </tr>
+
+          {% if can_edit %}
+          <!-- Edit Modal -->
+          <div class="modal fade" id="editModal{{ r.id }}" tabindex="-1">
+            <div class="modal-dialog">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">Edit Receipt</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="POST" action="{{ url_for('stock.edit', id=r.id) }}">
+                  <div class="modal-body">
+                    <div class="mb-3">
+                      <label class="form-label">Date *</label>
+                      <input type="date" name="receipt_date" class="form-control" value="{{ r.receipt_date }}" required>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">GRN Number</label>
+                      <input type="text" name="grn_no" class="form-control" value="{{ r.grn_no or '' }}">
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Item</label>
+                      <input type="text" class="form-control" value="{{ r.item_name }}" disabled>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Quantity *</label>
+                      <input type="number" name="qty" class="form-control" min="1" value="{{ r.qty }}" required>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Remarks</label>
+                      <textarea name="remarks" class="form-control" rows="2">{{ r.remarks or '' }}</textarea>
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-jsw">Save Changes</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% else %}
+          <tr>
+            <td colspan="6" class="text-center text-muted py-4">No receipts yet.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if can_create %}
+<!-- Receive Stock Modal -->
+<div class="modal fade" id="receiveStockModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-truck-loading me-2"></i>Receive Stock</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('stock.receive') }}">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Date *</label>
+            <input type="date" name="receipt_date" class="form-control" value="{{ today }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">GRN Number</label>
+            <input type="text" name="grn_no" class="form-control" placeholder="e.g. GRN-2024-001">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Item *</label>
+            <select name="item_id" class="form-select" required>
+              <option value="">-- Select Item --</option>
+              {% for item in items %}
+              <option value="{{ item.id }}">{{ item.item_name }} (Stock: {{ item.stock }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Quantity *</label>
+            <input type="number" name="qty" class="form-control" min="1" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Remarks</label>
+            <textarea name="remarks" class="form-control" rows="2"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-jsw">
+            <i class="fas fa-save me-1"></i>Save
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+<script>
+function applyDateFilter() {
+  const from = document.getElementById('filterFrom').value;
+  const to = document.getElementById('filterTo').value;
+  const params = new URLSearchParams();
+  if (from) params.set('from_date', from);
+  if (to) params.set('to_date', to);
+  window.location.href = "{{ url_for('stock.index') }}?" + params.toString();
+}
+
+function resetDateFilter() {
+  window.location.href = "{{ url_for('stock.index') }}";
+}
+
+function downloadReport() {
+  const from = document.getElementById('filterFrom').value;
+  const to = document.getElementById('filterTo').value;
+  const params = new URLSearchParams();
+  if (from) params.set('from_date', from);
+  if (to) params.set('to_date', to);
+  window.location.href = "{{ url_for('stock.download') }}?" + params.toString();
+}
+</script>
+{% endblock %}

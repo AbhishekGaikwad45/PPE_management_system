@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% block title %}Calibration Tracking{% endblock %}
+{% block page_title %}Calibration Tracking{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-end mb-3">
+  <button class="btn btn-jsw btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">
+    <i class="fas fa-plus me-1"></i>Add Calibration Record
+  </button>
+</div>
+
+<div class="card">
+  <div class="card-header"><i class="fas fa-tools me-2"></i>Calibration Records (Gas Detectors, Weighing Equipment etc.)</div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead><tr><th>Item</th><th>Serial No</th><th>Last Calibration</th><th>Next Due</th><th>Calibrated By</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody>
+          {% for r in records %}
+          <tr>
+            <td><strong>{{ r.item_name }}</strong></td>
+            <td><code>{{ r.serial_no or '-' }}</code></td>
+            <td>{{ r.last_calibration_date or '-' }}</td>
+            <td>
+              <strong {{ 'class="text-danger"' if r.next_calibration_date < today|string else '' }}>
+                {{ r.next_calibration_date }}
+              </strong>
+              {% if r.next_calibration_date < today|string %}
+              <span class="badge bg-danger ms-1">OVERDUE</span>
+              {% endif %}
+            </td>
+            <td>{{ r.calibrated_by or '-' }}</td>
+            <td><span class="badge {{ 'bg-success' if r.status=='Valid' else 'bg-danger' }}">{{ r.status }}</span></td>
+            <td>
+              {% if r.status == 'Valid' %}
+              <a href="{{ url_for('calibration.expire', id=r.id) }}" class="btn btn-sm btn-outline-danger"
+                 onclick="return confirm('Mark as expired?')"><i class="fas fa-times"></i></a>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No calibration records found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Add Calibration Record</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <form method="POST" action="{{ url_for('calibration.add') }}">
+        <div class="modal-body">
+          <div class="mb-2"><label class="form-label">Item *</label>
+            <select name="item_id" class="form-select" required>
+              <option value="">-- Select Item --</option>
+              {% for item in items %}<option value="{{ item.id }}">{{ item.item_name }}</option>{% endfor %}
+            </select></div>
+          <div class="mb-2"><label class="form-label">Serial Number</label><input type="text" name="serial_no" class="form-control" placeholder="e.g. GD-2024-001"></div>
+          <div class="mb-2"><label class="form-label">Last Calibration Date</label><input type="date" name="last_calibration_date" class="form-control"></div>
+          <div class="mb-2"><label class="form-label">Next Calibration Due *</label><input type="date" name="next_calibration_date" class="form-control" required></div>
+          <div class="mb-2"><label class="form-label">Calibrated By</label><input type="text" name="calibrated_by" class="form-control" placeholder="Agency / Person"></div>
+        </div>
+        <div class="modal-footer"><button type="submit" class="btn btn-jsw btn-primary">Save</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

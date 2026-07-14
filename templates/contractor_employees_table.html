@@ -1,0 +1,191 @@
+<style>
+/* ---------- Small Right-Aligned Instant Search ---------- */
+.toolbar-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px 4px;
+}
+.mini-search-box {
+  display: flex;
+  align-items: center;
+  width: 260px;
+  background: #fff;
+  border: 1px solid #dfe1e5;
+  border-radius: 20px;
+  padding: 4px 12px;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.mini-search-box:focus-within {
+  box-shadow: 0 1px 6px rgba(32,33,36,0.2);
+  border-color: #4285f4;
+}
+.mini-search-box i.search-icon {
+  color: #9aa0a6;
+  font-size: 13px;
+  margin-right: 8px;
+}
+.mini-search-box input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  padding: 7px 0;
+  background: transparent;
+}
+.mini-search-box .clear-icon {
+  color: #9aa0a6;
+  cursor: pointer;
+  font-size: 12px;
+  display: none;
+  margin-left: 6px;
+}
+.mini-search-box input:not(:placeholder-shown) ~ .clear-icon {
+  display: inline-block;
+}
+.search-hint {
+  text-align: right;
+  font-size: 11px;
+  color: #9aa0a6;
+  padding: 0 16px 8px;
+}
+.no-results-row td {
+  text-align: center;
+  color: #6c757d;
+  padding: 28px 0;
+}
+
+/* ---------- Table ---------- */
+.table-scroll-wrap {
+  max-height: 750px;
+  overflow-y: auto;
+  border-top: 1px solid #dee2e6;
+}
+.table-scroll-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: #1A3A5C;
+  color: #fff;
+  box-shadow: inset 0 -1px 0 #dee2e6;
+}
+.table-scroll-wrap td.text-end,
+.table-scroll-wrap th.text-end {
+  text-align: right !important;
+}
+.action-btns {
+  display: inline-flex;
+  gap: 6px;
+  justify-content: flex-end;
+  width: 100%;
+}
+</style>
+
+<!-- ---------- Small Search Bar (right aligned, instant filter) ---------- -->
+<div class="toolbar-row">
+  <div class="mini-search-box">
+    <i class="fas fa-search search-icon"></i>
+    <input type="text" id="ctrEmpSearchInput" placeholder="Search employees..." autocomplete="off">
+    <i class="fas fa-times-circle clear-icon" id="ctrEmpSearchClear"></i>
+  </div>
+</div>
+<div class="search-hint">Searches Emp Code, Name, Department &amp; Designation</div>
+
+<!-- ---------- Employee Table ---------- -->
+<div class="table-scroll-wrap">
+  <table class="table table-hover mb-0" id="ctrEmpTable">
+    <thead>
+      <tr>
+        <th>Emp Code</th>
+        <th>Name</th>
+        <th>Department</th>
+        <th>Designation</th>
+        <th>Status</th>
+        <th class="text-end">Action</th>
+      </tr>
+    </thead>
+    <tbody id="ctrEmpTableBody">
+      {% for e in employees %}
+      <tr class="ctr-emp-row">
+        <td><code class="text-danger">{{ e.emp_code }}</code></td>
+        <td><strong>{{ e.name }}</strong></td>
+        <td>{{ e.department or '-' }}</td>
+        <td>{{ e.designation or '-' }}</td>
+        <td>
+          <span class="badge {{ 'bg-success' if e.status == 'Active' else 'bg-secondary' }}">{{ e.status }}</span>
+        </td>
+        <td class="text-end">
+          <div class="action-btns">
+            {% if can_edit %}
+            <button type="button" class="btn btn-sm btn-outline-primary ctr-emp-edit-btn"
+              data-id="{{ e.id }}"
+              data-emp-code="{{ e.emp_code }}"
+              data-name="{{ e.name }}"
+              data-department="{{ e.department or '' }}"
+              data-contractor="{{ e.contractor or '' }}"
+              data-designation="{{ e.designation or '' }}"
+              data-status="{{ e.status }}">
+              <i class="fas fa-edit"></i>
+            </button>
+            {% endif %}
+            {% if can_delete %}
+            <a href="{{ url_for('employees.delete', id=e.id) }}"
+               class="btn btn-sm btn-outline-danger"
+               onclick="return confirm('Delete this employee?')">
+              <i class="fas fa-trash"></i>
+            </a>
+            {% endif %}
+            {% if not can_edit and not can_delete %}
+            <span class="text-muted small">View only</span>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+
+      {% else %}
+      <tr><td colspan="6" class="text-center text-muted py-4">No active employees under this contractor.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+(function () {
+  var input = document.getElementById('ctrEmpSearchInput');
+  var clearBtn = document.getElementById('ctrEmpSearchClear');
+  var tbody = document.getElementById('ctrEmpTableBody');
+  if (!input || !tbody) return;
+
+  function filterRows() {
+    var q = input.value.trim().toLowerCase();
+    var rows = tbody.querySelectorAll('tr.ctr-emp-row');
+    var visibleCount = 0;
+
+    rows.forEach(function (row) {
+      var text = row.textContent.toLowerCase();
+      var match = text.indexOf(q) !== -1;
+      row.style.display = match ? '' : 'none';
+      if (match) visibleCount++;
+    });
+
+    var existingNoResults = tbody.querySelector('.no-results-row');
+    if (visibleCount === 0 && q !== '') {
+      if (!existingNoResults) {
+        var tr = document.createElement('tr');
+        tr.className = 'no-results-row';
+        tr.innerHTML = '<td colspan="6"><i class="fas fa-search me-1"></i>No employees match "' + input.value.replace(/</g, '&lt;') + '"</td>';
+        tbody.appendChild(tr);
+      }
+    } else if (existingNoResults) {
+      existingNoResults.remove();
+    }
+  }
+
+  input.addEventListener('input', filterRows);
+
+  clearBtn.addEventListener('click', function () {
+    input.value = '';
+    filterRows();
+    input.focus();
+  });
+})();
+</script>

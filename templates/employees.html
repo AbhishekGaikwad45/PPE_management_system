@@ -1,0 +1,482 @@
+{% extends 'base.html' %}
+{% block title %}Employees{% endblock %}
+{% block page_title %}Employee Master{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
+<style>
+.choices__inner { border-radius: 6px; border: 1px solid #ced4da; min-height: 38px; }
+.choices__list--dropdown { z-index: 9999; }
+.import-zone {
+  border: 2px dashed #1A3A5C; border-radius: 10px; padding: 30px;
+  text-align: center; background: #f8fafc; cursor: pointer; transition: all 0.2s;
+}
+.import-zone:hover, .import-zone.dragover { background: #eef2ff; border-color: #2563A8; }
+.import-zone i { font-size: 2.5rem; color: #1A3A5C; }
+#fileNameDisplay { margin-top: 10px; font-size: 13px; color: #2563A8; font-weight: 500; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Top Buttons -->
+{% if can_create %}
+<div class="d-flex justify-content-end mb-3 gap-2 flex-wrap">
+  <button type="button" id="openImportBtn" class="btn btn-outline-primary">
+    <i class="fas fa-file-upload me-1"></i> Import Excel
+  </button>
+  <button type="button" class="btn btn-jsw" data-bs-toggle="modal" data-bs-target="#addModal">
+    <i class="fas fa-plus me-1"></i> Add Employee
+  </button>
+</div>
+{% endif %}
+
+{% if is_admin %}
+<!-- Department Grid — links into a filtered, paginated table below instead of pre-loading everyone -->
+<div class="card mb-3">
+  <div class="card-header"><i class="fas fa-building me-2"></i>Employees by Department</div>
+  <div class="card-body">
+    <div class="row g-3">
+      {% for name in department_names %}
+        <div class="col-md-3 col-sm-4 col-6">
+          <a href="{{ url_for('employees.index', department=name) }}"
+             class="btn {{ 'btn-primary' if dept_filter==name else 'btn-outline-primary' }} w-100 py-3">
+            <i class="fas fa-users d-block mb-1"></i>
+            {{ name }}
+            <span class="badge bg-secondary ms-1">{{ dept_counts.get(name, 0) }}</span>
+          </a>
+        </div>
+      {% endfor %}
+      {% if dept_counts.get('Unassigned') %}
+        <div class="col-md-3 col-sm-4 col-6">
+          <a href="{{ url_for('employees.index', department='Unassigned') }}"
+             class="btn {{ 'btn-secondary' if dept_filter=='Unassigned' else 'btn-outline-secondary' }} w-100 py-3">
+            <i class="fas fa-question-circle d-block mb-1"></i>
+            Unassigned
+            <span class="badge bg-secondary ms-1">{{ dept_counts.get('Unassigned') }}</span>
+          </a>
+        </div>
+      {% endif %}
+    </div>
+    {% if dept_filter or contractor_filter %}
+      <div class="mt-2">
+        <a href="{{ url_for('employees.index') }}" class="small">
+          <i class="fas fa-times me-1"></i>Clear filter ({{ contractor_filter or dept_filter }})
+        </a>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Employee Table -->
+<div class="card">
+  <div class="card-header">
+    <i class="fas fa-users me-2"></i>
+    {% if is_admin %}
+      {{ contractor_filter or dept_filter or 'All' }} Employees ({{ total }})
+    {% else %}
+      {{ employees[0].department if employees else 'Your Department' }} Employees ({{ total }})
+    {% endif %}
+  </div>
+  <div class="card-body p-0">
+    <div class="p-3">
+      <input type="text" id="searchInput" class="form-control" placeholder="Search employee (searches ALL employees, not just this page)...">
+      <div id="searchStatus" class="small text-muted mt-1" style="display:none;"></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="empTable">
+        <thead>
+          <tr>
+            <th>Emp Code</th><th>Name</th><th>Department</th>
+            <th>Contractor</th><th>Designation</th><th>Status</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in employees %}
+          <tr class="emp-row">
+            <td><code class="text-danger">{{ e.emp_code }}</code></td>
+            <td><strong>{{ e.name }}</strong></td>
+            <td>{{ e.department or '-' }}</td>
+            <td>{{ e.contractor or '-' }}</td>
+            <td>{{ e.designation or '-' }}</td>
+            <td>
+              <span class="badge {{ 'bg-success' if e.status == 'Active' else 'bg-secondary' }}">
+                {{ e.status }}
+              </span>
+            </td>
+            <td>
+              {% if can_edit %}
+              <button type="button" class="btn btn-sm btn-outline-primary"
+                data-bs-toggle="modal" data-bs-target="#editModal{{ e.id }}">
+                <i class="fas fa-edit"></i>
+              </button>
+              {% endif %}
+              {% if can_delete %}
+              <a href="{{ url_for('employees.delete', id=e.id) }}"
+                 class="btn btn-sm btn-outline-danger"
+                 onclick="return confirm('Delete this employee?')">
+                <i class="fas fa-trash"></i>
+              </a>
+              {% endif %}
+              {% if not can_edit and not can_delete %}
+              <span class="text-muted small">View only</span>
+              {% endif %}
+            </td>
+          </tr>
+
+          {% if can_edit %}
+          <!-- Edit Modal — declared once here; department popups below just reference this same id -->
+          <div class="modal fade" id="editModal{{ e.id }}" tabindex="-1">
+            <div class="modal-dialog">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">Edit Employee</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="POST" action="{{ url_for('employees.edit', id=e.id) }}">
+                  <div class="modal-body">
+                    <div class="mb-2">
+                      <label class="form-label">Emp Code</label>
+                      <input type="text" name="emp_code" class="form-control" value="{{ e.emp_code }}" required>
+                    </div>
+                    <div class="mb-2">
+                      <label class="form-label">Name</label>
+                      <input type="text" name="name" class="form-control" value="{{ e.name }}" required>
+                    </div>
+                    <div class="mb-2">
+                      <label class="form-label">Department</label>
+                      <select name="department" class="form-select choices-single" id="editDept{{ e.id }}">
+                        <option value="">-- Select --</option>
+                        {% for d in departments %}
+                        <option value="{{ d.name }}" {{ 'selected' if d.name==e.department }}>{{ d.name }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="mb-2">
+                      <label class="form-label">Contractor</label>
+                      <select name="contractor" class="form-select choices-single" id="editContr{{ e.id }}">
+                        <option value="">-- None --</option>
+                        {% for c in contractors %}
+                        <option value="{{ c.name }}" {{ 'selected' if c.name==e.contractor }}>{{ c.name }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="mb-2">
+                      <label class="form-label">Designation</label>
+                      <input type="text" name="designation" class="form-control" value="{{ e.designation or '' }}">
+                    </div>
+                    <div class="mb-2">
+                      <label class="form-label">Status</label>
+                      <select name="status" class="form-select">
+                        <option value="Active" {{ 'selected' if e.status=='Active' }}>Active</option>
+                        <option value="Inactive" {{ 'selected' if e.status=='Inactive' }}>Inactive</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="submit" class="btn btn-jsw">Save Changes</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% else %}
+          <tr>
+            <td colspan="7" class="text-center text-muted py-4">No employees added yet.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if total_pages > 1 %}
+    <div class="d-flex justify-content-between align-items-center p-3" id="paginationBar">
+      <span class="text-muted small">Page {{ page }} of {{ total_pages }} ({{ total }} employees)</span>
+      <nav>
+        <ul class="pagination pagination-sm mb-0">
+          <li class="page-item {{ 'disabled' if page <= 1 }}">
+            <a class="page-link" href="{{ url_for('employees.index', department=dept_filter, contractor=contractor_filter, page=page-1) }}">Previous</a>
+          </li>
+          <li class="page-item {{ 'disabled' if page >= total_pages }}">
+            <a class="page-link" href="{{ url_for('employees.index', department=dept_filter, contractor=contractor_filter, page=page+1) }}">Next</a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if can_create %}
+<!-- Add Employee Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Employee</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('employees.add') }}">
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label">Employee Code *</label>
+            <input type="text" name="emp_code" class="form-control" required placeholder="e.g. JSW001">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Full Name *</label>
+            <input type="text" name="name" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Department</label>
+            <select name="department" class="form-select" id="addDept">
+              <option value="">-- Select Department --</option>
+              {% for d in departments %}
+              <option value="{{ d.name }}">{{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Contractor</label>
+            <select name="contractor" class="form-select" id="addContr">
+              <option value="">-- None (Direct Employee) --</option>
+              {% for c in contractors %}
+              <option value="{{ c.name }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Designation</label>
+            <input type="text" name="designation" class="form-control">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-jsw">
+            <i class="fas fa-save me-1"></i>Save
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===== IMPORT EXCEL MODAL ===== -->
+<div class="modal fade" id="importExcelModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#1A3A5C; color:#fff;">
+        <h5 class="modal-title" id="importModalLabel">
+          <i class="fas fa-file-upload me-2"></i>Import Employees from Excel
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+
+      <form method="POST" action="{{ url_for('employees.import_excel') }}"
+            enctype="multipart/form-data" id="importForm">
+        <div class="modal-body">
+
+          <div class="alert alert-info mb-3">
+            <strong><i class="fas fa-info-circle me-1"></i> Any Excel format is accepted.</strong>
+            <div class="mt-2 small">
+              Columns detected automatically by header name. Accepted headers:<br>
+              <code>Emp Code / Name / Department / Contractor / Designation / Status</code><br>
+              <span class="text-muted">No headers? Positional order used: A=EmpCode, B=Name, C=Dept, D=Contractor, E=Designation, F=Status</span>
+            </div>
+          </div>
+
+          <div class="import-zone" id="dropZone">
+            <i class="fas fa-cloud-upload-alt d-block mb-2"></i>
+            <div class="fw-semibold">Click here to select your Excel file</div>
+            <div class="text-muted small mt-1">or drag &amp; drop — supports .xlsx and .xls</div>
+            <div id="fileNameDisplay"></div>
+          </div>
+
+          <input type="file" name="excel_file" id="excelFileInput" class="d-none" accept=".xlsx,.xls">
+
+        </div>
+        <div class="modal-footer">
+          <a href="{{ url_for('employees.export_excel') }}" class="btn btn-outline-secondary me-auto" target="_blank">
+            <i class="fas fa-download me-1"></i> Download Template
+          </a>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success" id="importSubmitBtn" disabled>
+            <i class="fas fa-upload me-1"></i> Import Now
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+<script>
+// ── 1. Table search — searches ALL employees server-side, not just the current page ──
+(function () {
+  var searchInput = document.getElementById('searchInput');
+  var tbody = document.querySelector('#empTable tbody');
+  var statusEl = document.getElementById('searchStatus');
+  var paginationBar = document.getElementById('paginationBar');
+  var originalRowsHTML = tbody.innerHTML;   // remember the normal paginated rows so we can restore them
+  var debounceTimer = null;
+
+  searchInput.addEventListener('keyup', function () {
+    var val = this.value.trim();
+    clearTimeout(debounceTimer);
+
+    if (val === '') {
+      // Empty box -> restore the normal paginated view
+      tbody.innerHTML = originalRowsHTML;
+      statusEl.style.display = 'none';
+      if (paginationBar) paginationBar.style.display = '';
+      return;
+    }
+
+    // Debounce so we don't fire a request on every keystroke
+    debounceTimer = setTimeout(function () {
+      statusEl.style.display = 'block';
+      statusEl.textContent = 'Searching all employees...';
+
+      fetch('/employees/search?q=' + encodeURIComponent(val))
+        .then(function (res) { return res.json(); })
+        .then(function (results) {
+          if (paginationBar) paginationBar.style.display = 'none'; // hide pagination while showing search results
+
+          if (!results.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No matching employees found.</td></tr>';
+            statusEl.textContent = 'No matches.';
+            return;
+          }
+
+          statusEl.textContent = results.length + ' match(es) found (showing up to 20). Clear the search box to return to the full list.';
+
+          var rowsHtml = results.map(function (e) {
+            return '<tr class="emp-row">' +
+              '<td><code class="text-danger">' + (e.emp_code || '') + '</code></td>' +
+              '<td><strong>' + (e.name || '') + '</strong></td>' +
+              '<td>' + (e.department || '-') + '</td>' +
+              '<td>' + (e.contractor || '-') + '</td>' +
+              '<td>-</td>' +
+              '<td><span class="badge bg-success">Active</span></td>' +
+              '<td><span class="text-muted small">Open full list to edit/delete</span></td>' +
+              '</tr>';
+          }).join('');
+          tbody.innerHTML = rowsHtml;
+        })
+        .catch(function () {
+          tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">Search failed. Try again.</td></tr>';
+          statusEl.textContent = '';
+        });
+    }, 300);
+  });
+})();
+
+// ── 2. Searchable dropdowns (Choices.js) ────────────────────
+function initChoices(selector) {
+  document.querySelectorAll(selector).forEach(function (el) {
+    if (!el._choices) {
+      el._choices = new Choices(el, {
+        searchEnabled: true,
+        itemSelectText: '',
+        shouldSort: false,
+        searchPlaceholderValue: 'Search...'
+      });
+    }
+  });
+}
+
+var addModalEl = document.getElementById('addModal');
+if (addModalEl) {
+  addModalEl.addEventListener('shown.bs.modal', function () {
+    initChoices('#addDept, #addContr');
+  });
+}
+
+document.querySelectorAll('[id^="editModal"]').forEach(function (modal) {
+  modal.addEventListener('shown.bs.modal', function () {
+    modal.querySelectorAll('.choices-single').forEach(function (el) {
+      if (!el._choices) {
+        el._choices = new Choices(el, {
+          searchEnabled: true, itemSelectText: '', shouldSort: false,
+          searchPlaceholderValue: 'Search...'
+        });
+      }
+    });
+  });
+});
+
+// ── 3. Import Excel Modal ───────────────
+var importModalEl = document.getElementById('importExcelModal');
+if (importModalEl) {
+  var importModal   = new bootstrap.Modal(importModalEl);
+  var fileInput     = document.getElementById('excelFileInput');
+  var dropZone      = document.getElementById('dropZone');
+  var fileDisplay   = document.getElementById('fileNameDisplay');
+  var submitBtn     = document.getElementById('importSubmitBtn');
+  var openBtn       = document.getElementById('openImportBtn');
+
+  if (openBtn) {
+    openBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      importModal.show();
+    });
+  }
+
+  dropZone.addEventListener('click', function () {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', function () {
+    if (this.files && this.files.length > 0) {
+      showFile(this.files[0]);
+    }
+  });
+
+  dropZone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    this.classList.add('dragover');
+  });
+  dropZone.addEventListener('dragleave', function () {
+    this.classList.remove('dragover');
+  });
+
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    this.classList.remove('dragover');
+    var files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      var dt = new DataTransfer();
+      dt.items.add(files[0]);
+      fileInput.files = dt.files;
+      showFile(files[0]);
+    }
+  });
+
+  function showFile(file) {
+    var ext = file.name.split('.').pop().toLowerCase();
+    if (ext !== 'xlsx' && ext !== 'xls') {
+      fileDisplay.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle me-1"></i>Only .xlsx or .xls files allowed.</span>';
+      submitBtn.disabled = true;
+      return;
+    }
+    fileDisplay.innerHTML =
+      '<i class="fas fa-check-circle text-success me-1"></i>' +
+      '<strong>' + file.name + '</strong> (' + (file.size / 1024).toFixed(1) + ' KB)';
+    submitBtn.disabled = false;
+  }
+
+  importModalEl.addEventListener('hidden.bs.modal', function () {
+    fileInput.value = '';
+    fileDisplay.innerHTML = '';
+    submitBtn.disabled = true;
+    dropZone.classList.remove('dragover');
+  });
+}
+</script>
+{% endblock %}
