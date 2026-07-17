@@ -149,6 +149,13 @@ def init_db():
         remarks TEXT
     )''')
 
+
+     # ← ADD — disposal records aren't tied to an employee, so employee_id must be optional
+    c.execute('''ALTER TABLE return_register ALTER COLUMN employee_id DROP NOT NULL''')
+    # ← ADD — separate quantity fields: count (No.) vs weight (Kg)
+    c.execute('''ALTER TABLE return_register ADD COLUMN IF NOT EXISTS qty_no INTEGER''')
+    c.execute('''ALTER TABLE return_register ADD COLUMN IF NOT EXISTS qty_kg NUMERIC''')
+
     c.execute('''CREATE TABLE IF NOT EXISTS expiry_tracking (
         id SERIAL PRIMARY KEY,
         item_id INTEGER NOT NULL REFERENCES items(id),

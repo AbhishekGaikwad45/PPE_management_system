@@ -22,9 +22,33 @@ COMBINE_GROUPS = {
         'IT', 'Information Technology',
         'I.T.', 'Information Tech'                  # ← ADDED common IT variants too, just in case
     ],
+    # ← ADDED — Marine + Operations combined into one card
+    'Marine / Operations': [
+        'Marine', 'Operations', 'Marine & Operations', 'Marine and Operations'
+    ],
+    # ← ADDED — Accounts + Finance & Accounts combined into one card
+    'Accounts / Finance & Accounts': [
+        'Accounts', 'Finance & Accounts', 'Finance and Accounts',
+        'Finance', 'F&A', 'Finance & Account'
+    ],
+    # ← ADDED — Commercial + Commercial & Stores combined into one card
+    'Commercial / Commercial & Stores': [
+        'Commercial', 'Commercial & Stores', 'Commercial and Stores',
+        'Commercial & Store', 'Commercial and Store'
+    ],
 }
 # reverse lookup: UPPER(raw name) -> display name
 _COMBINE_LOOKUP = {variant.upper(): display for display, variants in COMBINE_GROUPS.items() for variant in variants}
+
+# Department cards that should be COMPLETELY HIDDEN from the "Employees by Department"
+# grid in the UI. Employees in these departments still exist, are still counted in the
+# overall total, and are still visible to a department-login user whose own department
+# is one of these — this only removes the card/button from the admin grid.
+# Match is case-insensitive against the DISPLAY name (after combine-grouping is applied).
+HIDDEN_DEPT_CARDS = {
+    'SHIPPING & LOGISTICS', 'SHIPPING AND LOGISTICS', 'SHIPPING&LOGISTICS',
+    'LOGISTICS', 'SHIPPING',
+}
 
 
 def _display_dept_name(raw_dept):
@@ -68,7 +92,10 @@ def index():
         display_to_raw.setdefault(display, set()).add(raw)  # keep the exact original raw value for filtering
     display_to_raw = {k: list(v) for k, v in display_to_raw.items()}
 
-    department_names = sorted(d for d in dept_counts if d != 'Unassigned')
+    department_names = sorted(
+        d for d in dept_counts
+        if d != 'Unassigned' and d.upper() not in HIDDEN_DEPT_CARDS
+    )
 
     # Build WHERE clause once, reuse for both COUNT and the paginated SELECT
     where_clauses = ["status='Active'"]
@@ -108,16 +135,42 @@ def index():
     )
     employees = fetchall(c)
 
+    # Attach the combined display name to each employee row so the edit
+    # dropdown can correctly mark the right option as selected
+    for emp in employees:
+        emp['dept_display'] = _display_dept_name(emp.get('department'))
+
     if not is_admin:
         dept_counts = {}
         department_names = []
 
-    # Departments (used for Add/Edit dropdowns — unaffected by the combine-groups above)
+# Departments (used for Add/Edit dropdowns) — dedupe using combine-groups
+    # but keep the OPTION VALUE as a real, existing raw department name
+    # (never the combined display string) so saves always match real data.
     if is_admin:
         c.execute("SELECT name FROM departments ORDER BY name")
     else:
         c.execute("SELECT name FROM departments WHERE name=%s", (dept,))
-    departments = fetchall(c)
+    raw_departments = fetchall(c)
+
+    seen_display = {}
+    departments = []
+    for row in raw_departments:
+        raw_name = row['name']
+        disp = _display_dept_name(raw_name)
+        if disp not in seen_display:
+            seen_display[disp] = raw_name
+            departments.append({'name': raw_name, 'display': disp})
+    departments.sort(key=lambda d: d['display'])
+
+    seen_display = set()
+    departments = []
+    for row in raw_departments:
+        disp = _display_dept_name(row['name'])
+        if disp not in seen_display:
+            seen_display.add(disp)
+            departments.append({'name': disp})
+    departments.sort(key=lambda d: d['name'])
 
     # Contractors
     c.execute("SELECT name FROM contractors ORDER BY name")
@@ -170,15 +223,24 @@ def edit(id):
     conn = get_db()
     c = conn.cursor()
 
+    # Where to send the admin back to after saving — same department filter /
+    # contractor filter / page they were viewing, so the just-edited employee
+    # shows up under their NEW department instead of the admin landing back
+    # on the unfiltered "All" list and thinking the change didn't take.
+    redirect_dept = request.form.get('return_dept_filter', '') or None
+    redirect_contractor = request.form.get('return_contractor_filter', '') or None
+    redirect_page = request.form.get('return_page', '1') or '1'
+
     try:
         c.execute("SELECT department FROM employees WHERE id=%s", (id,))
         old = fetchone(c)
 
-        department = request.form.get("department")
+        department = (request.form.get("department") or "").strip()
+        print("Department:", request.form.get("department"))
+        print("Contractor:", request.form.get("contractor"))
+        print(request.form)
         if not department:
             department = old["department"]
-            print("Contractor =", request.form.get("contractor"))
-            print(request.form)
         c.execute("""
             UPDATE employees
             SET
@@ -203,6 +265,15 @@ def edit(id):
         conn.commit()
         flash("Employee updated successfully.", "success")
 
+        # If the department actually changed, jump straight into a filtered
+        # view of the NEW department so the change is visible immediately —
+        # even if the admin was on the unfiltered "All" list (where the row
+        # can silently move to a different page after re-sorting).
+        if _display_dept_name(department) != _display_dept_name(old["department"]):
+            redirect_dept = _display_dept_name(department)
+            redirect_contractor = None
+            redirect_page = '1'
+
     except Exception as e:
         conn.rollback()
         flash(f"Error: {e}", "danger")
@@ -210,7 +281,8 @@ def edit(id):
     finally:
         conn.close()
 
-    return redirect(url_for('employees.index'))
+    return redirect(url_for('employees.index', department=redirect_dept,
+                             contractor=redirect_contractor, page=redirect_page))
 
 @employees_bp.route('/employees/delete/<int:id>')
 def delete(id):

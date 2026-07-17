@@ -135,6 +135,12 @@
                   <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <form method="POST" action="{{ url_for('employees.edit', id=e.id) }}">
+                  <!-- Preserve whatever department/contractor filter + page the admin was
+                       viewing, so after saving they land back where the employee is now
+                       visible instead of an unfiltered page 1. -->
+                  <input type="hidden" name="return_dept_filter" value="{{ dept_filter }}">
+                  <input type="hidden" name="return_contractor_filter" value="{{ contractor_filter }}">
+                  <input type="hidden" name="return_page" value="{{ page }}">
                   <div class="modal-body">
                     <div class="mb-2">
                       <label class="form-label">Emp Code</label>
@@ -146,8 +152,15 @@
                     </div>
                     <div class="mb-2">
                       <label class="form-label">Department</label>
+                      {% set dept_names = departments | map(attribute='name') | list %}
                       <select name="department" class="form-select choices-single" id="editDept{{ e.id }}">
                         <option value="">-- Select --</option>
+                        {% if e.department and e.department not in dept_names %}
+                        <!-- Employee's actual department isn't in the master list (e.g. an
+                             imported value like "Unit Head Office") — show it anyway so the
+                             dropdown never silently reverts/blanks the current department. -->
+                        <option value="{{ e.department }}" selected>{{ e.department }} (current)</option>
+                        {% endif %}
                         {% for d in departments %}
                         <option value="{{ d.name }}" {{ 'selected' if d.name==e.department }}>{{ d.name }}</option>
                         {% endfor %}
@@ -400,12 +413,12 @@ if (addModalEl) {
 document.querySelectorAll('[id^="editModal"]').forEach(function (modal) {
   modal.addEventListener('shown.bs.modal', function () {
     modal.querySelectorAll('.choices-single').forEach(function (el) {
-      if (!el._choices) {
-        el._choices = new Choices(el, {
-          searchEnabled: true, itemSelectText: '', shouldSort: false,
-          searchPlaceholderValue: 'Search...'
-        });
-      }
+      // if (!el._choices) {
+      //   el._choices = new Choices(el, {
+      //     searchEnabled: true, itemSelectText: '', shouldSort: false,
+      //     searchPlaceholderValue: 'Search...'
+      //   });
+      // }
     });
   });
 });

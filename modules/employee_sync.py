@@ -110,9 +110,21 @@ def sync_employees():
     """
     Pulls employees from the SQL Server HR views and upserts them into the
     PostgreSQL `employees` table (by emp_code) and `contractors` table
-    (by contractor name). Employees that exist in Postgres but are no longer
-    present in SQL Server are marked Inactive rather than deleted, so issue
-    history / references are preserved.
+    (by contractor name).
+
+    Rules:
+      - New employee (not in Postgres yet):
+          * Inserted ONLY if their incoming status is Active.
+          * If incoming status is Inactive, they are skipped entirely
+            (never inserted).
+      - Existing employee (already in Postgres):
+          * If incoming status is Inactive -> ONLY the status column is
+            updated; name/department/contractor/designation are left as-is.
+          * If incoming status is Active -> full field sync (name,
+            department, contractor, designation, status), same as before.
+      - Employees that exist in Postgres but are no longer present at all
+        in SQL Server (missing from both views) are marked Inactive rather
+        than deleted, so issue history / references are preserved.
     """
     try:
         sql_conn = get_sql_connection()
@@ -169,15 +181,31 @@ def sync_employees():
                 existing = fetchone(pg_cursor)
 
                 if existing is None:
-                    pg_cursor.execute("""
-                        INSERT INTO employees (emp_code, name, department, contractor, designation, status)
-                        VALUES (%s,%s,%s,%s,%s,%s)
-                    """, (emp_code, name, department, contractor, designation, status))
-                    added += 1
+                    # New employee — only add them if they're Active.
+                    # Inactive employees who don't exist yet are simply skipped.
+                    if status == 'Active':
+                        pg_cursor.execute("""
+                            INSERT INTO employees (emp_code, name, department, contractor, designation, status)
+                            VALUES (%s,%s,%s,%s,%s,%s)
+                        """, (emp_code, name, department, contractor, designation, status))
+                        added += 1
+                    else:
+                        skipped += 1
                 else:
-                    if (existing.get('name') != name or existing.get('department') != department or
-                            existing.get('contractor') != contractor or existing.get('designation') != designation or
-                            existing.get('status') != status):
+                    # Existing employee going Inactive — only flip the status,
+                    # don't touch name/department/contractor/designation.
+                    if status == 'Inactive' and existing.get('status') != 'Inactive':
+                        pg_cursor.execute("""
+                            UPDATE employees
+                            SET status=%s
+                            WHERE emp_code=%s
+                        """, (status, emp_code))
+                        updated += 1
+                    elif status == 'Active' and (
+                        existing.get('name') != name or existing.get('department') != department or
+                        existing.get('contractor') != contractor or existing.get('designation') != designation or
+                        existing.get('status') != status
+                    ):
                         pg_cursor.execute("""
                             UPDATE employees
                             SET name=%s, department=%s, contractor=%s, designation=%s, status=%s
@@ -202,7 +230,7 @@ def sync_employees():
                    f'{deactivated} marked inactive, {contractors_added} new contractors.')
         flash(summary, 'success')
         if skipped:
-            flash(f'{skipped} rows skipped (missing Employee ID or Name).', 'warning')
+            flash(f'{skipped} rows skipped (missing Employee ID/Name, or new-but-Inactive).', 'warning')
         if error_log:
             flash('Issues: ' + ' | '.join(error_log), 'warning')
 

@@ -9,35 +9,65 @@ def index():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
     conn = get_db(); c = conn.cursor()
-    c.execute("SELECT ir.id, e.name as emp_name, e.emp_code, e.department, i.item_name, ir.qty, ir.issue_date, ir.return_due_date FROM issue_register ir JOIN employees e ON ir.employee_id=e.id JOIN items i ON ir.item_id=i.id WHERE ir.returnable=1 AND ir.status='Issued' ORDER BY ir.return_due_date")
-    pending = fetchall(c)
-    c.execute("SELECT rr.*, e.name as emp_name, i.item_name FROM return_register rr JOIN employees e ON rr.employee_id=e.id JOIN items i ON rr.item_id=i.id ORDER BY rr.return_date DESC LIMIT 50")
+
+    # PPE types for the dropdown — auto-populated from Item Master
+    c.execute("SELECT id, item_name FROM items ORDER BY item_name")
+    items = fetchall(c)
+
+    # History — disposal records, most recent first
+    c.execute("""
+        SELECT rr.*, i.item_name
+        FROM return_register rr
+        JOIN items i ON rr.item_id = i.id
+        ORDER BY rr.return_date DESC, rr.id DESC
+        LIMIT 50
+    """)
     returns = fetchall(c)
     conn.close()
-    return render_template('returns.html', pending=pending, returns=returns, today=date.today())
+    return render_template('returns.html', items=items, returns=returns, today=date.today())
 
-@returns_bp.route('/returns/add', methods=['POST'])
-def add():
+
+@returns_bp.route('/returns/add-disposal', methods=['POST'])
+def add_disposal():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
     conn = get_db(); c = conn.cursor()
     try:
-        issue_id = int(request.form['issue_id'])
-        qty = int(request.form['qty'])
-        c.execute("SELECT * FROM issue_register WHERE id=%s", (issue_id,))
-        issue = fetchone(c)
-        if not issue:
-            flash('Issue record not found.', 'danger')
+        item_id = int(request.form['item_id'])
+
+        qty_no_raw = request.form.get('qty_no', '').strip()
+        qty_kg_raw = request.form.get('qty_kg', '').strip()
+        qty_no = int(qty_no_raw) if qty_no_raw else None
+        qty_kg = float(qty_kg_raw) if qty_kg_raw else None
+
+        if not qty_no and not qty_kg:
+            flash('Please enter a quantity in No. or Kg.', 'danger')
             conn.close()
             return redirect(url_for('returns.index'))
-        c.execute("INSERT INTO return_register (return_date,issue_id,employee_id,item_id,qty,condition,received_by,remarks) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                  (request.form['return_date'], issue_id, issue['employee_id'], issue['item_id'], qty,
-                   request.form.get('condition','Good'), session['full_name'], request.form.get('remarks','')))
-        c.execute("UPDATE items SET stock=stock+%s WHERE id=%s", (qty, issue['item_id']))
-        c.execute("UPDATE issue_register SET status='Returned' WHERE id=%s", (issue_id,))
+
+        c.execute("""
+            INSERT INTO return_register
+                (return_date, employee_id, item_id, qty, qty_no, qty_kg, condition, received_by, remarks)
+            VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            request.form['return_date'],
+            item_id,
+            qty_no or 0,          # legacy `qty` column kept satisfied (NOT NULL)
+            qty_no,
+            qty_kg,
+            'Disposed',
+            session['full_name'],
+            request.form.get('remarks', '')
+        ))
+
+        # Only reduce stock count when a countable (No.) quantity was disposed
+        if qty_no:
+            c.execute("UPDATE items SET stock = stock - %s WHERE id=%s", (qty_no, item_id))
+
         conn.commit()
-        flash('Return recorded successfully.', 'success')
+        flash('Disposal record saved successfully.', 'success')
     except Exception as e:
-        conn.rollback(); flash(f'Error: {e}', 'danger')
+        conn.rollback()
+        flash(f'Error: {e}', 'danger')
     conn.close()
     return redirect(url_for('returns.index'))
