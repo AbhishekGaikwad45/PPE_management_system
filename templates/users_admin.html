@@ -47,15 +47,23 @@
           <td><span class="badge bg-secondary">{{ u.role }}</span></td>
           <td>{{ u.department or 'All (Admin access)' }}</td>
           <td>
-            {% set p = perms.get(u.role, {}) %}
             {% if u.role in ['Admin', 'Super Admin'] %}
               <span class="badge bg-success">Create</span>
               <span class="badge bg-success">Edit</span>
               <span class="badge bg-success">Delete</span>
             {% else %}
+              {# department-specific permission if the user has a department, else legacy global perms #}
+              {% if u.department %}
+                {% set p = dept_perms.get(u.department, {}).get(u.role, {}) %}
+              {% else %}
+                {% set p = perms.get(u.role, {}) %}
+              {% endif %}
               <span class="badge {% if p.get('can_create') %}bg-success{% else %}bg-light text-muted{% endif %}">Create</span>
               <span class="badge {% if p.get('can_edit') %}bg-success{% else %}bg-light text-muted{% endif %}">Edit</span>
               <span class="badge {% if p.get('can_delete') %}bg-success{% else %}bg-light text-muted{% endif %}">Delete</span>
+              {% if u.department %}
+                <div><small class="text-muted">({{ u.department }})</small></div>
+              {% endif %}
             {% endif %}
           </td>
           <td>{{ u.created_at }}</td>

@@ -47,6 +47,7 @@ def init_db():
     c.execute('''ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT''')
 
     # ← ADD — controls which role can Create / Edit / Delete users (set by Admin)
+    # used as a fallback for users that have no department assigned (department IS NULL)
     c.execute('''CREATE TABLE IF NOT EXISTS role_permissions (
         role TEXT PRIMARY KEY,
         can_create BOOLEAN NOT NULL DEFAULT FALSE,
@@ -57,6 +58,39 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS departments (
         id SERIAL PRIMARY KEY,
         name TEXT UNIQUE NOT NULL
+    )''')
+
+    # ← ADD — Create / Edit / Delete permission per DEPARTMENT + ROLE combo.
+    # Set by Admin/Super Admin from "Manage Permissions" -> pick a department.
+    # Only applies to users that have a department assigned; department-less
+    # users fall back to the global role_permissions table above.
+    c.execute('''CREATE TABLE IF NOT EXISTS department_role_permissions (
+        id SERIAL PRIMARY KEY,
+        department TEXT NOT NULL,
+        role TEXT NOT NULL,
+        can_create BOOLEAN NOT NULL DEFAULT FALSE,
+        can_edit BOOLEAN NOT NULL DEFAULT FALSE,
+        can_delete BOOLEAN NOT NULL DEFAULT FALSE,
+        UNIQUE(department, role)
+    )''')
+
+    # ← ADD — tombstone: departments explicitly deleted by an admin from
+    # "Manage Permissions". The SQL Server employee sync checks this table
+    # and will NOT auto re-create the department just because it still sees
+    # that department name on some incoming HR row (mirrors deleted_employees).
+    c.execute('''CREATE TABLE IF NOT EXISTS deleted_departments (
+        name TEXT PRIMARY KEY,
+        deleted_by TEXT,
+        deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+
+    # ← ADD — tombstone: contractors explicitly deleted by an admin from
+    # "Manage Contractors". The SQL Server employee sync checks this table
+    # and will NOT re-insert that contractor into the contractors table.
+    c.execute('''CREATE TABLE IF NOT EXISTS deleted_contractors (
+        name TEXT PRIMARY KEY,
+        deleted_by TEXT,
+        deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
 
     c.execute('''CREATE TABLE IF NOT EXISTS contractors (
@@ -80,6 +114,18 @@ def init_db():
     c.execute('''CREATE INDEX IF NOT EXISTS idx_employees_department ON employees(department)''')
     c.execute('''CREATE INDEX IF NOT EXISTS idx_employees_status ON employees(status)''')
 
+    # ← ADD — tombstone table: emp_codes that an admin explicitly deleted from
+    # the app. The SQL Server sync checks this table and will NOT re-insert
+    # a deleted employee just because they still show up (Active) in the
+    # source HR views. Deleting the row here (or via the "Restore" action)
+    # is the only way to let that emp_code be synced in again.
+    c.execute('''CREATE TABLE IF NOT EXISTS deleted_employees (
+        emp_code TEXT PRIMARY KEY,
+        name TEXT,
+        deleted_by TEXT,
+        deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+
     c.execute('''CREATE TABLE IF NOT EXISTS items (
         id SERIAL PRIMARY KEY,
         item_code TEXT UNIQUE NOT NULL,
@@ -102,7 +148,10 @@ def init_db():
         received_by TEXT,
         remarks TEXT
     )''')
-
+    c.execute("""
+    ALTER TABLE stock_receipts
+    ADD COLUMN IF NOT EXISTS department TEXT
+    """)
     c.execute('''CREATE TABLE IF NOT EXISTS issue_register (
         id SERIAL PRIMARY KEY,
         issue_date TEXT NOT NULL,
@@ -115,7 +164,10 @@ def init_db():
         status TEXT DEFAULT 'Issued',
         remarks TEXT
     )''')
-
+    c.execute("""
+    ALTER TABLE issue_register
+    ADD COLUMN IF NOT EXISTS department TEXT
+    """)
     c.execute('''CREATE TABLE IF NOT EXISTS contractor_issue_register (
         id SERIAL PRIMARY KEY,
         issue_date TEXT NOT NULL,

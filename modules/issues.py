@@ -1,11 +1,12 @@
-from flask import Blueprint, render_template, request, redirect, url_for, session, flash ,Response
+from flask import Blueprint, render_template, request, redirect, url_for, session, flash, Response
 from database.db import get_db, fetchall, fetchone
 from datetime import date
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from modules.employees import _display_dept_name, COMBINE_GROUPS   # ← ADDED
+from modules.employees import _display_dept_name, COMBINE_GROUPS
+from modules.user_admin import has_permission   # ← ADDED
 
 issues_bp = Blueprint('issues', __name__)
 _thin = Side(style='thin', color='C7CDD4')
@@ -13,17 +14,17 @@ _border = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
 _ctr = Alignment(horizontal='center', vertical='center', wrap_text=True)
 _left = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
+
 @issues_bp.route('/issues')
 def index():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+    # View access — everyone with login can see their own dept issues; no gate needed here
     conn = get_db(); c = conn.cursor()
     dept = session.get('department')
     role = session.get('role')
     is_admin = role in ['Admin', 'Super Admin']
 
-    # Resolve every raw variant of the user's department (handles combined
-    # groups like IT/Information Technology, Civil/Projects, Admin/HR/Administration)
     if not is_admin and dept:
         display_name = _display_dept_name(dept)
         dept_variants = [v.lower() for v in COMBINE_GROUPS.get(display_name, [dept])]
@@ -66,13 +67,29 @@ def index():
     c.execute(query, tuple(params))
     issues = fetchall(c)
     conn.close()
+
+    # ← FIXED — has_permission() takes ONE argument ('can_create' / 'can_edit'
+    # / 'can_delete'), not (module, action). The old two-arg call silently
+    # always evaluated wrong, which is why Add/Edit/Delete stayed visible
+    # even for roles with no permission.
+    can_create = has_permission('can_create')
+    can_edit   = has_permission('can_edit')
+    can_delete = has_permission('can_delete')
+
     return render_template('issues.html', employees=employees, items=items, issues=issues,
-                            today=date.today(), from_date=from_date, to_date=to_date)
+                            today=date.today(), from_date=from_date, to_date=to_date,
+                            can_create=can_create, can_edit=can_edit, can_delete=can_delete)
+
 
 @issues_bp.route('/issues/add', methods=['POST'])
 def add():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+
+    role = session.get("role")
+    if not has_permission('can_create'):                       # ← FIXED
+        flash("You don't have permission to issue PPE/Equipment.", "danger")
+        return redirect(url_for("issues.index"))
 
     conn = get_db()
     c = conn.cursor()
@@ -89,79 +106,45 @@ def add():
         returnable = 1 if request.form.get('returnable') else 0
         return_due = request.form.get('return_due_date') if returnable else None
 
-        role = session.get("role")
         dept = session.get("department")
+        is_admin = role in ["Admin", "Super Admin"]
 
-        if role not in ["Admin", "Super Admin"]:
+        if not is_admin:
             display_name = _display_dept_name(dept)
             allowed_variants = [v.lower() for v in COMBINE_GROUPS.get(display_name, [dept])]
             for emp_id in employee_ids:
-                c.execute(
-                    "SELECT department FROM employees WHERE id=%s",
-                    (emp_id,)
-                )
+                c.execute("SELECT department FROM employees WHERE id=%s", (emp_id,))
                 emp = fetchone(c)
-
                 if not emp or (emp["department"] or '').lower() not in allowed_variants:
                     conn.close()
-                    flash(
-                        "You can only issue PPE to employees in your department.",
-                        "danger"
-                    )
+                    flash("You can only issue PPE to employees in your department.", "danger")
                     return redirect(url_for("issues.index"))
 
-        # Check stock for every selected item
         for item_id in item_ids:
-            c.execute(
-                "SELECT stock FROM items WHERE id=%s",
-                (item_id,)
-            )
+            c.execute("SELECT stock FROM items WHERE id=%s", (item_id,))
             stock = fetchone(c)
-
             if not stock or stock["stock"] < qty:
                 conn.close()
                 flash("Insufficient stock!", "danger")
                 return redirect(url_for("issues.index"))
 
-        # Insert every Employee × Item combination
         for emp_id in employee_ids:
-            for item_id in item_ids:
+            c.execute("SELECT department FROM employees WHERE id=%s", (emp_id,))
+            emp_row = fetchone(c)
+            emp_department = emp_row["department"] if emp_row else dept
 
+            for item_id in item_ids:
                 c.execute("""
                     INSERT INTO issue_register
-                    (
-                        issue_date,
-                        employee_id,
-                        item_id,
-                        qty,
-                        issued_by,
-                        returnable,
-                        return_due_date,
-                        status,
-                        remarks
-                    )
-                    VALUES
-                    (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """,
-                (
-                    issue_date,
-                    emp_id,
-                    item_id,
-                    qty,
-                    issued_by,
-                    returnable,
-                    return_due,
-                    'Issued',
-                    remarks
-                ))
+                    (issue_date, employee_id, item_id, qty, issued_by,
+                     returnable, return_due_date, status, remarks, department)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (issue_date, emp_id, item_id, qty, issued_by,
+                      returnable, return_due, 'Issued', remarks, emp_department))
 
-                c.execute(
-                    "UPDATE items SET stock = stock - %s WHERE id=%s",
-                    (qty, item_id)
-                )
+                c.execute("UPDATE items SET stock = stock - %s WHERE id=%s", (qty, item_id))
 
         conn.commit()
-
         flash("PPE/Equipment issued successfully.", "success")
 
     except Exception as e:
@@ -173,10 +156,16 @@ def add():
 
     return redirect(url_for("issues.index"))
 
+
 @issues_bp.route('/issues/edit/<int:id>', methods=['POST'])
 def edit(id):
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+
+    if not has_permission('can_edit'):                          # ← FIXED
+        flash("You don't have permission to edit issue records.", "danger")
+        return redirect(url_for('issues.index'))
+
     conn = get_db(); c = conn.cursor()
     try:
         c.execute("SELECT * FROM issue_register WHERE id=%s", (id,))
@@ -205,7 +194,7 @@ def edit(id):
             SET issue_date=%s, qty=%s, returnable=%s, return_due_date=%s, remarks=%s
             WHERE id=%s
         """, (request.form['issue_date'], new_qty, returnable, return_due,
-              request.form.get('remarks',''), id))
+              request.form.get('remarks', ''), id))
 
         c.execute("UPDATE items SET stock=stock-%s WHERE id=%s", (qty_diff, old['item_id']))
 
@@ -221,6 +210,11 @@ def edit(id):
 def delete(id):
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+
+    if not has_permission('can_delete'):                        # ← FIXED
+        flash("You don't have permission to delete issue records.", "danger")
+        return redirect(url_for('issues.index'))
+
     conn = get_db(); c = conn.cursor()
     try:
         c.execute("SELECT * FROM issue_register WHERE id=%s", (id,))
@@ -238,10 +232,13 @@ def delete(id):
         conn.rollback(); flash(f'Error: {e}', 'danger')
     conn.close()
     return redirect(url_for('issues.index'))
+
+
 @issues_bp.route('/issues/download')
 def download():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+    # Download = read-only report; login gate hi purese ahe, extra permission nako vatly tar hi line kadhu shakta
 
     conn = get_db(); c = conn.cursor()
     dept = session.get('department')

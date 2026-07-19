@@ -200,9 +200,13 @@ def add():
     conn = get_db()
     c = conn.cursor()
     try:
+        emp_code = request.form['emp_code']
         c.execute("INSERT INTO employees (emp_code,name,department,contractor,designation,status) VALUES (%s,%s,%s,%s,%s,%s)",
-                  (request.form['emp_code'], request.form['name'], request.form['department'],
+                  (emp_code, request.form['name'], request.form['department'],
                    request.form.get('contractor',''), request.form.get('designation',''), 'Active'))
+        # ← ADD — manually re-adding someone clears any old tombstone for
+        # this emp_code, so future syncs are allowed to touch them again.
+        c.execute("DELETE FROM deleted_employees WHERE emp_code=%s", (emp_code,))
         conn.commit()
         flash('Employee added successfully.', 'success')
     except Exception as e:
@@ -291,11 +295,65 @@ def delete(id):
         return redirect(url_for('employees.index'))
     conn = get_db()
     c = conn.cursor()
-    c.execute("DELETE FROM employees WHERE id=%s", (id,))
-    conn.commit()
+    try:
+        # ← ADD — record a tombstone BEFORE deleting, so the next SQL Server
+        # sync knows this emp_code was intentionally removed and must not
+        # be re-inserted just because it's still Active in the source view.
+        c.execute("SELECT emp_code, name FROM employees WHERE id=%s", (id,))
+        emp = fetchone(c)
+        if emp:
+            c.execute("""
+                INSERT INTO deleted_employees (emp_code, name, deleted_by)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (emp_code) DO UPDATE
+                    SET name=EXCLUDED.name, deleted_by=EXCLUDED.deleted_by, deleted_at=CURRENT_TIMESTAMP
+            """, (emp['emp_code'], emp['name'], session.get('user')))
+
+        c.execute("DELETE FROM employees WHERE id=%s", (id,))
+        conn.commit()
+        flash('Employee deleted.', 'info')
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error: {e}', 'danger')
     conn.close()
-    flash('Employee deleted.', 'info')
     return redirect(url_for('employees.index'))
+
+
+# ← ADD — lets an admin see/undo tombstones, and re-allow a specific emp_code
+# to be picked up by the sync again.
+@employees_bp.route('/employees/deleted')
+def deleted_list():
+    if 'user' not in session:
+        return redirect(url_for('auth.login'))
+    if not has_permission('can_delete'):
+        flash('Access denied.', 'danger')
+        return redirect(url_for('employees.index'))
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM deleted_employees ORDER BY deleted_at DESC")
+    deleted = fetchall(c)
+    conn.close()
+    return render_template('deleted_employees.html', deleted=deleted)
+
+
+@employees_bp.route('/employees/restore/<emp_code>', methods=['POST'])
+def restore(emp_code):
+    if 'user' not in session:
+        return redirect(url_for('auth.login'))
+    if not has_permission('can_delete'):
+        flash('Access denied.', 'danger')
+        return redirect(url_for('employees.index'))
+    conn = get_db()
+    c = conn.cursor()
+    try:
+        c.execute("DELETE FROM deleted_employees WHERE emp_code=%s", (emp_code,))
+        conn.commit()
+        flash(f'{emp_code} can be synced in again.', 'success')
+    except Exception as e:
+        conn.rollback()
+        flash(f'Error: {e}', 'danger')
+    conn.close()
+    return redirect(url_for('employees.deleted_list'))
 
 @employees_bp.route('/employees/search')
 def search():
@@ -517,10 +575,25 @@ def contractors():
         c.execute("SELECT name FROM departments ORDER BY name")
         departments = fetchall(c)
     else:
-        c.execute("SELECT * FROM contractors WHERE department=%s ORDER BY name", (dept,))
+        c.execute("""
+        SELECT DISTINCT ON (UPPER(TRIM(e.contractor)))
+            COALESCE(c.id, 0) AS id,
+            e.contractor AS name,
+            COALESCE(c.contact, '') AS contact,
+            %s AS department
+        FROM employees e
+        LEFT JOIN contractors c
+          ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
+        WHERE
+            e.status = 'Active'
+            AND e.department = %s
+            AND e.contractor IS NOT NULL
+            AND TRIM(e.contractor) <> ''
+        ORDER BY UPPER(TRIM(e.contractor))
+    """, (dept, dept))
+
         contractors = fetchall(c)
         departments = [{'name': dept}] if dept else []
-
     conn.close()
 
     can_create = has_permission('can_create')
@@ -533,16 +606,45 @@ def contractors():
         d = ctr.get('department') or 'Unassigned'
         contractors_by_dept.setdefault(d, []).append(ctr)
 
-    # Employee count per contractor (Active employees only) — for the new
-    # "Employees by Contractor" card grid
+
+
+    # Employee count per contractor
     c2 = get_db()
     cc = c2.cursor()
-    cc.execute("SELECT contractor FROM employees WHERE status='Active' AND contractor IS NOT NULL AND TRIM(contractor) != ''")
-    contractor_emp_counts = {}
-    for row in fetchall(cc):
-        name = row['contractor'].strip()
-        contractor_emp_counts[name] = contractor_emp_counts.get(name, 0) + 1
+
+    if is_admin:
+        cc.execute("""
+            SELECT contractor, COUNT(*) AS cnt
+            FROM employees
+            WHERE status='Active'
+            AND contractor IS NOT NULL
+            AND TRIM(contractor) <> ''
+            GROUP BY contractor
+        """)
+    else:
+        cc.execute("""
+            SELECT contractor, COUNT(*) AS cnt
+            FROM employees
+            WHERE status='Active'
+            AND department=%s
+            AND contractor IS NOT NULL
+            AND TRIM(contractor) <> ''
+            GROUP BY contractor
+        """, (dept,))
+
+    rows = fetchall(cc)
     c2.close()
+
+    raw_counts = {
+        (row["contractor"] or "").strip().upper(): row["cnt"]
+        for row in rows
+    }
+
+    contractor_emp_counts = {}
+
+    for ctr in contractors:
+        key = (ctr["name"] or "").strip().upper()
+        contractor_emp_counts[ctr["name"]] = raw_counts.get(key, 0)
 
     return render_template('contractors.html', contractors=contractors, departments=departments,
                             contractors_by_dept=contractors_by_dept, is_admin=is_admin,

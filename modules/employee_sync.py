@@ -73,6 +73,15 @@ def _load_department_lookup(pg_cursor):
     return {row['name'].upper(): row['name'] for row in fetchall(pg_cursor)}
 
 
+def _load_deleted_emp_codes(pg_cursor):
+    """emp_codes an admin explicitly deleted from the app. These must never
+    be re-inserted by the sync, even though they're still Active in SQL
+    Server — deleting them again every sync would defeat the point of
+    deleting them at all."""
+    pg_cursor.execute("SELECT emp_code FROM deleted_employees")
+    return {row['emp_code'] for row in fetchall(pg_cursor)}
+
+
 def _normalize_department(raw_dept, dept_lookup, pg_cursor):
     """
     Resolve a raw SQL Server department string to the canonical name used in
@@ -118,13 +127,19 @@ def sync_employees():
           * If incoming status is Inactive, they are skipped entirely
             (never inserted).
       - Existing employee (already in Postgres):
-          * If incoming status is Inactive -> ONLY the status column is
-            updated; name/department/contractor/designation are left as-is.
-          * If incoming status is Active -> full field sync (name,
-            department, contractor, designation, status), same as before.
+          * We NEVER touch name/department/contractor/designation again,
+            since those may have been edited manually by an admin after
+            the initial import.
+          * ONLY the status column is synced, and only when it actually
+            changed (Active <-> Inactive).
       - Employees that exist in Postgres but are no longer present at all
         in SQL Server (missing from both views) are marked Inactive rather
         than deleted, so issue history / references are preserved.
+      - Employees that were manually deleted from this app (via the Delete
+        button) are recorded in `deleted_employees` and are NEVER
+        re-inserted by this sync, even if still Active in SQL Server.
+        Use /employees/deleted to restore (un-tombstone) a specific
+        emp_code if it needs to be synced in again.
     """
     try:
         sql_conn = get_sql_connection()
@@ -136,10 +151,12 @@ def sync_employees():
     pg_cursor = pg.cursor()
 
     added = updated = unchanged = skipped = 0
+    blocked_deleted = 0
     contractors_added = 0
     seen_emp_codes = set()
     error_log = []
     dept_lookup = _load_department_lookup(pg_cursor)
+    deleted_emp_codes = _load_deleted_emp_codes(pg_cursor)
 
     try:
         sql_cursor = sql_conn.cursor()
@@ -157,6 +174,12 @@ def sync_employees():
 
                 if not emp_code or not name or emp_code.lower() == 'none':
                     skipped += 1
+                    continue
+
+                if emp_code in deleted_emp_codes:
+                    # Explicitly deleted in the app — do not resurrect, even
+                    # though they're still present/Active in SQL Server.
+                    blocked_deleted += 1
                     continue
 
                 department = _normalize_department(str(row.get('department') or '').strip(), dept_lookup, pg_cursor)
@@ -192,25 +215,16 @@ def sync_employees():
                     else:
                         skipped += 1
                 else:
-                    # Existing employee going Inactive — only flip the status,
-                    # don't touch name/department/contractor/designation.
-                    if status == 'Inactive' and existing.get('status') != 'Inactive':
+                    # Existing employee — NEVER touch name/department/contractor/
+                    # designation again once they're in Postgres (those may have
+                    # been edited manually by an admin). Only sync the status
+                    # column, and only when it actually changed.
+                    if existing.get('status') != status:
                         pg_cursor.execute("""
                             UPDATE employees
                             SET status=%s
                             WHERE emp_code=%s
                         """, (status, emp_code))
-                        updated += 1
-                    elif status == 'Active' and (
-                        existing.get('name') != name or existing.get('department') != department or
-                        existing.get('contractor') != contractor or existing.get('designation') != designation or
-                        existing.get('status') != status
-                    ):
-                        pg_cursor.execute("""
-                            UPDATE employees
-                            SET name=%s, department=%s, contractor=%s, designation=%s, status=%s
-                            WHERE emp_code=%s
-                        """, (name, department, contractor, designation, status, emp_code))
                         updated += 1
                     else:
                         unchanged += 1
@@ -231,6 +245,8 @@ def sync_employees():
         flash(summary, 'success')
         if skipped:
             flash(f'{skipped} rows skipped (missing Employee ID/Name, or new-but-Inactive).', 'warning')
+        if blocked_deleted:
+            flash(f'{blocked_deleted} rows skipped because they were previously deleted from the app.', 'info')
         if error_log:
             flash('Issues: ' + ' | '.join(error_log), 'warning')
 

@@ -5,6 +5,7 @@ import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from modules.user_admin import has_permission   # ← ADDED
 
 contractor_issues_bp = Blueprint('contractor_issues', __name__)
 _thin = Side(style='thin', color='C7CDD4')
@@ -23,29 +24,79 @@ def index():
     from_date = request.args.get('from_date', '')
     to_date = request.args.get('to_date', '')
 
-    if dept:
-        c.execute("SELECT id, name, contact, department FROM contractors WHERE department=%s ORDER BY name", (dept,))
+    role = session.get("role")
+    is_admin = role in ["Admin", "Super Admin"]
+
+    if is_admin:
+        c.execute("""
+            SELECT DISTINCT
+                COALESCE(c.id, 0) AS id,
+                e.contractor AS name,
+                COALESCE(c.contact, '') AS contact,
+                e.department
+            FROM employees e
+            LEFT JOIN contractors c
+                ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
+            WHERE
+                e.status = 'Active'
+                AND e.contractor IS NOT NULL
+                AND TRIM(e.contractor) <> ''
+            ORDER BY e.department, e.contractor
+        """)
     else:
-        c.execute("SELECT id, name, contact, department FROM contractors ORDER BY name")
+        c.execute("""
+            SELECT DISTINCT
+                COALESCE(c.id, 0) AS id,
+                e.contractor AS name,
+                COALESCE(c.contact, '') AS contact,
+                e.department
+            FROM employees e
+            LEFT JOIN contractors c
+                ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
+            WHERE
+                e.status = 'Active'
+                AND e.department = %s
+                AND e.contractor IS NOT NULL
+                AND TRIM(e.contractor) <> ''
+            ORDER BY e.contractor
+        """, (dept,))
+
     contractors_raw = fetchall(c)
-    contractors = [{"id": ct["id"], "name": ct["name"],
-                     "label": f"{ct['name']} ({ct['department'] or 'Unassigned'})"} for ct in contractors_raw]
 
-    c.execute("""
-        SELECT
-            e.id,
-            e.emp_code,
-            e.name,
-            c.id AS contractor_id
-        FROM employees e
-        INNER JOIN contractors c
-            ON UPPER(TRIM(e.contractor)) = UPPER(TRIM(c.name))
-        WHERE e.status = 'Active'
+    contractors = [
+        {
+            "id": ct["id"],
+            "name": ct["name"],
+            "label": f"{ct['name']} ({ct['department']})"
+        }
+        for ct in contractors_raw
+    ]
+
+
+    query = """
+    SELECT
+        e.id,
+        e.emp_code,
+        e.name,
+        COALESCE(c.id,0) AS contractor_id
+    FROM employees e
+    LEFT JOIN contractors c
+        ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
+    WHERE
+        e.status='Active'
         AND e.contractor IS NOT NULL
-        AND e.contractor <> ''
-        ORDER BY e.name
-    """)
+        AND TRIM(e.contractor) <> ''
+    """
 
+    params = []
+
+    if not is_admin:
+        query += " AND LOWER(TRIM(e.department)) = LOWER(TRIM(%s))"
+        params.append(dept)
+
+    query += " ORDER BY e.name"
+
+    c.execute(query, tuple(params))
     contractor_employees_raw = fetchall(c)
 
     contractor_employees = []
@@ -57,10 +108,13 @@ def index():
             "label": f"{emp['emp_code']} - {emp['name']}"
         })
 
-    c.execute("SELECT id, item_name, stock, unit FROM items ORDER BY item_name")
+    c.execute("SELECT id, item_name, unit FROM items ORDER BY item_name")
     items_raw = fetchall(c)
-    items = [{"id": i["id"], "stock": i["stock"], "unit": i["unit"],
-              "label": f"{i['item_name']} [Stock: {i['stock']} {i['unit']}]"} for i in items_raw]
+    items = [{
+        "id": i["id"],
+        "unit": i["unit"],
+        "label": i["item_name"],
+    } for i in items_raw]
 
     query = """
         SELECT
@@ -100,8 +154,9 @@ def index():
         WHERE 1=1
         """
     params = []
-    if dept:
-        query += " AND ct.department=%s"; params.append(dept)
+    if not is_admin:
+        query += " AND e.department=%s"
+        params.append(dept)
     if from_date:
         query += " AND cir.issue_date >= %s"; params.append(from_date)
     if to_date:
@@ -111,15 +166,29 @@ def index():
     c.execute(query, tuple(params))
     issues = fetchall(c)
     conn.close()
+
+    # ← FIXED — has_permission() takes ONE argument ('can_create' / 'can_edit'
+    # / 'can_delete'), not (module, action). The old two-arg call silently
+    # always evaluated wrong, which is why Add/Edit/Delete stayed visible
+    # even for roles with no permission (same bug as modules/issues.py).
+    can_create = has_permission('can_create')
+    can_edit   = has_permission('can_edit')
+    can_delete = has_permission('can_delete')
+
     return render_template('contractor_issues.html', contractors=contractors, items=items, issues=issues,
                             contractor_employees=contractor_employees,
-                            today=date.today(), from_date=from_date, to_date=to_date)
+                            today=date.today(), from_date=from_date, to_date=to_date,
+                            can_create=can_create, can_edit=can_edit, can_delete=can_delete)
 
 
 @contractor_issues_bp.route('/contractor-issues/add', methods=['POST'])
 def add():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+
+    if not has_permission('can_create'):                        # ← FIXED
+        flash("You don't have permission to issue PPE to contractors.", "danger")
+        return redirect(url_for("contractor_issues.index"))
 
     conn = get_db()
     c = conn.cursor()
@@ -139,21 +208,30 @@ def add():
 
         role = session.get("role")
         dept = session.get("department")
+        print("=" * 50)
+        print("Session Department :", repr(dept))
+        print("Selected Contractor ID :", contractor_id)
 
         if role not in ["Admin", "Super Admin"]:
-            c.execute("SELECT department FROM contractors WHERE id=%s", (contractor_id,))
+            c.execute("""
+                SELECT DISTINCT department
+                FROM employees
+                WHERE contractor = (
+                    SELECT name
+                    FROM contractors
+                    WHERE id=%s
+                )
+                LIMIT 1
+            """, (contractor_id,))
+
             ct = fetchone(c)
-            if not ct or ct["department"] != dept:
+            print("Contractor Row :", ct)
+            print("=" * 50)
+            session_dept = (dept or "").strip().lower()
+            contractor_dept = (ct["department"] or "").strip().lower() if ct else ""
+            if not ct or contractor_dept != session_dept:
                 conn.close()
                 flash("You can only issue PPE to contractors in your department.", "danger")
-                return redirect(url_for("contractor_issues.index"))
-
-        for item_id in item_ids:
-            c.execute("SELECT stock FROM items WHERE id=%s", (item_id,))
-            stock = fetchone(c)
-            if not stock or stock["stock"] < qty:
-                conn.close()
-                flash("Insufficient stock!", "danger")
                 return redirect(url_for("contractor_issues.index"))
 
         for emp_id in employee_ids:
@@ -165,14 +243,13 @@ def add():
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, (issue_date, contractor_id, emp_id, item_id, qty, issued_by,
                       returnable, return_due, 'Issued', remarks))
-                # NOTE: contractor issues are tracked separately and do NOT
-                # deduct from items.stock — stock only changes for regular
-                # employee issues, not contractor issues.
 
         conn.commit()
         flash("PPE/Equipment issued to contractor employee(s) successfully.", "success")
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         conn.rollback()
         flash(f"Error: {e}", "danger")
     finally:
@@ -185,6 +262,11 @@ def add():
 def edit(id):
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+
+    if not has_permission('can_edit'):                          # ← FIXED
+        flash("You don't have permission to edit contractor issue records.", "danger")
+        return redirect(url_for('contractor_issues.index'))
+
     conn = get_db(); c = conn.cursor()
     try:
         c.execute("SELECT * FROM contractor_issue_register WHERE id=%s", (id,))
@@ -203,9 +285,6 @@ def edit(id):
         def is_blank(v):
             return not v or v.strip().lower() in ('none', 'null')
 
-        # Fallback: if employee_id wasn't resubmitted (e.g. a select rebuild
-        # dropped it), keep the record's existing assignment instead of
-        # failing the whole update.
         if is_blank(employee_id) and old.get('employee_id'):
             employee_id = old['employee_id']
 
@@ -255,9 +334,6 @@ def edit(id):
             conn.close()
             return redirect(url_for('contractor_issues.index'))
 
-        # NOTE: contractor issues don't affect items.stock, so no stock
-        # adjustment is needed here even though the quantity may have changed.
-
         conn.commit()
         flash('Issue record updated successfully.', 'success')
     except Exception as e:
@@ -270,6 +346,11 @@ def edit(id):
 def delete(id):
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+
+    if not has_permission('can_delete'):                        # ← FIXED
+        flash("You don't have permission to delete contractor issue records.", "danger")
+        return redirect(url_for('contractor_issues.index'))
+
     conn = get_db(); c = conn.cursor()
     try:
         c.execute("SELECT * FROM contractor_issue_register WHERE id=%s", (id,))
@@ -280,7 +361,6 @@ def delete(id):
             return redirect(url_for('contractor_issues.index'))
 
         c.execute("DELETE FROM contractor_issue_register WHERE id=%s", (id,))
-        # NOTE: contractor issues don't affect items.stock, so nothing to restore here.
         conn.commit()
         flash('Issue record deleted.', 'success')
     except Exception as e:
@@ -296,6 +376,8 @@ def download():
 
     conn = get_db(); c = conn.cursor()
     dept = session.get('department')
+    role = session.get("role")
+    is_admin = role in ["Admin", "Super Admin"]
 
     from_date = request.args.get('from_date', '')
     to_date = request.args.get('to_date', '')
@@ -310,7 +392,7 @@ def download():
         WHERE 1=1
     """
     params = []
-    if dept:
+    if not is_admin:
         query += " AND ct.department=%s"
         params.append(dept)
     if from_date:

@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify, Response
 from database.db import get_db, fetchall, fetchone
+from modules.user_admin import has_permission   # ← ADD — same dynamic role_permissions table used elsewhere
 import io
 
 items_bp = Blueprint('items', __name__)
@@ -14,20 +15,46 @@ def index():
     c.execute("SELECT * FROM items ORDER BY category, item_name")
     items = fetchall(c)
     conn.close()
-    return render_template('items.html', items=items)
+
+    # ← ADD — pass permission flags to the template so Add/Edit/Delete
+    # buttons only render when the logged-in user's role/department is
+    # actually allowed to perform that action.
+    can_create = has_permission('can_create')
+    can_edit = has_permission('can_edit')
+    can_delete = has_permission('can_delete')
+
+    return render_template('items.html', items=items,
+                            can_create=can_create, can_edit=can_edit, can_delete=can_delete)
 
 @items_bp.route('/items/add', methods=['POST'])
 def add():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+    if not has_permission('can_create'):                       # ← ADD
+        flash('You do not have permission to add items.', 'danger')
+        return redirect(url_for('items.index'))
     conn = get_db(); c = conn.cursor()
     try:
-        c.execute("INSERT INTO items (item_code,item_name,category,unit,min_stock,reorder_level,has_expiry,has_calibration) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                  (request.form['item_code'], request.form['item_name'], request.form['category'],
-                   request.form.get('unit','Nos'), int(request.form.get('min_stock',0)),
-                   int(request.form.get('reorder_level',0)),
-                   1 if request.form.get('has_expiry') else 0,
-                   1 if request.form.get('has_calibration') else 0))
+        item_code = request.form['item_code'].strip().upper()
+        item_name = request.form['item_name'].strip().upper()
+
+        c.execute(
+            """
+            INSERT INTO items
+            (item_code,item_name,category,unit,min_stock,reorder_level,has_expiry,has_calibration)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                item_code,
+                item_name,
+                request.form['category'],
+                request.form.get('unit', 'Nos'),
+                int(request.form.get('min_stock', 0)),
+                int(request.form.get('reorder_level', 0)),
+                1 if request.form.get('has_expiry') else 0,
+                1 if request.form.get('has_calibration') else 0
+            )
+        )
         conn.commit()
         flash('Item added successfully.', 'success')
     except Exception as e:
@@ -39,21 +66,31 @@ def add():
 def edit(id):
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+    if not has_permission('can_edit'):                         # ← ADD
+        flash('You do not have permission to edit items.', 'danger')
+        return redirect(url_for('items.index'))
     conn = get_db(); c = conn.cursor()
-    c.execute("UPDATE items SET item_code=%s,item_name=%s,category=%s,unit=%s,min_stock=%s,reorder_level=%s,has_expiry=%s,has_calibration=%s WHERE id=%s",
-              (request.form['item_code'], request.form['item_name'], request.form['category'],
-               request.form.get('unit','Nos'), int(request.form.get('min_stock',0)),
-               int(request.form.get('reorder_level',0)),
-               1 if request.form.get('has_expiry') else 0,
-               1 if request.form.get('has_calibration') else 0, id))
-    conn.commit(); conn.close()
-    flash('Item updated.', 'success')
+    try:
+        c.execute("UPDATE items SET item_code=%s,item_name=%s,category=%s,unit=%s,min_stock=%s,reorder_level=%s,has_expiry=%s,has_calibration=%s WHERE id=%s",
+                  (request.form['item_code'].strip().upper(), request.form['item_name'].strip().upper(), request.form['category'],
+                   request.form.get('unit','Nos'), int(request.form.get('min_stock',0)),
+                   int(request.form.get('reorder_level',0)),
+                   1 if request.form.get('has_expiry') else 0,
+                   1 if request.form.get('has_calibration') else 0, id))
+        conn.commit()
+        flash('Item updated.', 'success')
+    except Exception as e:
+        conn.rollback(); flash(f'Error: {e}', 'danger')
+    conn.close()
     return redirect(url_for('items.index'))
 
 @items_bp.route('/items/delete/<int:id>', methods=['POST'])
 def delete(id):
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+    if not has_permission('can_delete'):                        # ← ADD
+        flash('You do not have permission to delete items.', 'danger')
+        return redirect(url_for('items.index'))
     conn = get_db(); c = conn.cursor()
     try:
         c.execute("DELETE FROM items WHERE id=%s", (id,))
@@ -133,6 +170,9 @@ def export_excel():
 def import_excel():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
+    if not has_permission('can_create'):                        # ← ADD — import creates/updates items, same gate as Add
+        flash('You do not have permission to import items.', 'danger')
+        return redirect(url_for('items.index'))
 
     if 'excel_file' not in request.files or request.files['excel_file'].filename == '':
         flash('No file selected.', 'danger')
@@ -223,9 +263,9 @@ def import_excel():
             if not any(row):
                 continue
             row_values = list(row)
-
-            item_code = get_val(row_values, 'item_code')
-            item_name = get_val(row_values, 'item_name')
+            
+            item_code = get_val(row_values, 'item_code').upper().strip()
+            item_name = get_val(row_values, 'item_name').upper().strip()    
 
             # item_code is the required key; name required only for brand-new items
             if not item_code:

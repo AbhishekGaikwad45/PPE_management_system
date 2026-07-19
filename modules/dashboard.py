@@ -42,22 +42,23 @@ def index():
     total_employees = c.fetchone()[0]
 
     # ==========================
-    # Total Stock (role-based)
-    # ==========================
-    if is_admin:
-        c.execute("SELECT COALESCE(SUM(stock),0) FROM items")
-        total_stock = c.fetchone()[0]
-    else:
-        c.execute("""
-            SELECT COALESCE(SUM(
-                CASE WHEN ir.status='Issued' THEN ir.qty ELSE 0 END
-                - CASE WHEN ir.status='Returned' THEN ir.qty ELSE 0 END
-            ),0)
-            FROM issue_register ir
-            JOIN employees e ON ir.employee_id=e.id
-            WHERE LOWER(e.department) = ANY(%s)
-        """, (dept_variants,))
-        total_stock = c.fetchone()[0]
+    # # Total Stock
+    # # ==========================
+    # if is_admin:
+    #     # Admin ला सर्व department चा stock
+    #     c.execute("""
+    #         SELECT COALESCE(SUM(qty),0)
+    #         FROM stock_receipts
+    #     """)
+    # else:
+    #     # Department User ला फक्त त्याच्या department चा stock
+    #     c.execute("""
+    #         SELECT COALESCE(SUM(qty),0)
+    #         FROM stock_receipts
+    #         WHERE LOWER(department) = ANY(%s)
+    #     """, (dept_variants,))
+
+    # total_stock = c.fetchone()[0]
 
     # ==========================
     # Issued Today
@@ -277,23 +278,108 @@ def index():
     else:
         emp_by_dept = []
 
-    # ==========================
-    # Stock by Department (admin hover tooltip on "Total Stock" KPI)
-    # ==========================
     if is_admin:
         c.execute("""
-            SELECT e.department,
-                   SUM(CASE WHEN ir.status='Issued' THEN ir.qty ELSE 0 END)
-                   - SUM(CASE WHEN ir.status='Returned' THEN ir.qty ELSE 0 END) AS net_stock
-            FROM issue_register ir
-            JOIN employees e ON ir.employee_id=e.id
-            WHERE e.department IS NOT NULL AND TRIM(e.department) <> ''
-            GROUP BY e.department
-            ORDER BY net_stock DESC
+            SELECT
+                d.department,
+
+                COALESCE(r.received_qty,0)
+                - COALESCE(i.issued_qty,0)
+                + COALESCE(rt.returned_qty,0) AS net_stock
+
+            FROM
+            (
+                SELECT DISTINCT department
+                FROM stock_receipts
+                WHERE department IS NOT NULL
+
+                UNION
+
+                SELECT DISTINCT department
+                FROM issue_register
+                WHERE department IS NOT NULL
+            ) d
+
+            LEFT JOIN
+            (
+                SELECT department,
+                    SUM(qty) AS received_qty
+                FROM stock_receipts
+                GROUP BY department
+            ) r
+            ON LOWER(r.department)=LOWER(d.department)
+
+            LEFT JOIN
+            (
+                SELECT department,
+                    SUM(qty) AS issued_qty
+                FROM issue_register
+                WHERE status='Issued'
+                GROUP BY department
+            ) i
+            ON LOWER(i.department)=LOWER(d.department)
+
+            LEFT JOIN
+            (
+                SELECT department,
+                    SUM(qty) AS returned_qty
+                FROM issue_register
+                WHERE status='Returned'
+                GROUP BY department
+            ) rt
+            ON LOWER(rt.department)=LOWER(d.department)
+
+            ORDER BY d.department
         """)
+
         stock_by_dept = fetchall(c)
+
     else:
         stock_by_dept = []
+
+    # ==========================
+    # Total Stock from Department Stock
+    # ==========================
+
+    if is_admin:
+
+        total_stock = sum(
+            row["net_stock"] or 0
+            for row in stock_by_dept
+        )
+
+    else:
+
+        c.execute("""
+            SELECT
+                COALESCE(SUM(qty),0)
+            FROM stock_receipts
+            WHERE LOWER(department)=ANY(%s)
+        """, (dept_variants,))
+
+        received = c.fetchone()[0]
+
+        c.execute("""
+            SELECT
+                COALESCE(SUM(qty),0)
+            FROM issue_register
+            WHERE status='Issued'
+            AND LOWER(department)=ANY(%s)
+        """, (dept_variants,))
+
+        issued = c.fetchone()[0]
+
+        c.execute("""
+            SELECT
+                COALESCE(SUM(qty),0)
+            FROM issue_register
+            WHERE status='Returned'
+            AND LOWER(department)=ANY(%s)
+        """, (dept_variants,))
+
+        returned = c.fetchone()[0]
+
+        total_stock = received - issued + returned
 
     # ==========================
     # Items

@@ -26,20 +26,32 @@ def index():
 
     from_date = request.args.get('from_date', '')
     to_date = request.args.get('to_date', '')
+    role = session.get("role")
+    department = session.get("department")
+    is_admin = role in ["Admin", "Super Admin"]
 
     query = """
         SELECT r.*, i.item_name, i.item_code
         FROM stock_receipts r
-        JOIN items i ON r.item_id=i.id
+        JOIN items i ON r.item_id = i.id
         WHERE 1=1
     """
+
     params = []
+
+    # Department filter only for department users
+    if not is_admin:
+        query += " AND r.department = %s"
+        params.append(department)
+
     if from_date:
         query += " AND r.receipt_date >= %s"
         params.append(from_date)
+
     if to_date:
         query += " AND r.receipt_date <= %s"
         params.append(to_date)
+
     query += " ORDER BY r.receipt_date DESC"
 
     c.execute(query, tuple(params))
@@ -71,10 +83,16 @@ def receive():
     qty = int(request.form.get('qty', 0))
     remarks = request.form.get('remarks')
     received_by = session.get('user')
+    role = session.get("role")
 
-    c.execute("""INSERT INTO stock_receipts (receipt_date, item_id, qty, grn_no, received_by, remarks)
-                 VALUES (%s,%s,%s,%s,%s,%s)""",
-              (receipt_date, item_id, qty, grn_no, received_by, remarks))
+    if role in ["Admin", "Super Admin"]:
+        department = request.form.get("department")
+    else:
+        department = session.get("department")
+
+    c.execute("""INSERT INTO stock_receipts (receipt_date, item_id, qty, grn_no, received_by, remarks,department)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+              (receipt_date, item_id, qty, grn_no, received_by, remarks,department))
     c.execute("UPDATE items SET stock = stock + %s WHERE id=%s", (qty, item_id))
 
     conn.commit()
@@ -178,21 +196,37 @@ def download():
 
     from_date = request.args.get('from_date', '')
     to_date = request.args.get('to_date', '')
-
+    role = session.get("role")
+    department = session.get("department")
+    is_admin = role in ["Admin", "Super Admin"]
     query = """
-        SELECT r.receipt_date, r.grn_no, i.item_name, i.item_code,
-               r.qty, i.unit, r.received_by, r.remarks
-        FROM stock_receipts r
-        JOIN items i ON r.item_id=i.id
-        WHERE 1=1
+    SELECT r.receipt_date,
+           r.grn_no,
+           i.item_name,
+           i.item_code,
+           r.qty,
+           i.unit,
+           r.received_by,
+           r.remarks
+    FROM stock_receipts r
+    JOIN items i ON r.item_id = i.id
+    WHERE 1=1
     """
+
     params = []
+
+    if not is_admin:
+        query += " AND r.department = %s"
+        params.append(department)
+
     if from_date:
         query += " AND r.receipt_date >= %s"
         params.append(from_date)
+
     if to_date:
         query += " AND r.receipt_date <= %s"
         params.append(to_date)
+
     query += " ORDER BY r.receipt_date DESC"
 
     c.execute(query, tuple(params))

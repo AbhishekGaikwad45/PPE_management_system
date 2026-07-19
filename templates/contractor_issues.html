@@ -14,6 +14,8 @@
   .choices__list--dropdown {
     z-index: 9999;
   }
+
+
 </style>
 {% endblock %}
 
@@ -40,9 +42,11 @@
           class="btn btn-sm btn-outline-success">
           <i class="fas fa-file-excel me-1"></i> Download Report
         </a>
+        {% if can_create %}
         <button type="button" class="btn btn-sm btn-jsw" data-bs-toggle="modal" data-bs-target="#addModal">
           <i class="fas fa-plus me-1"></i> Issue to Contractor
         </button>
+        {% endif %}
       </div>
     </form>
   </div>
@@ -96,19 +100,27 @@
             <td>{{ r.issued_by or '-' }}</td>
             <td>{{ r.remarks or '-' }}</td>
             <td>
+              {% if can_edit %}
               <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
                 data-bs-target="#editModal{{ r.id }}">
                 <i class="fas fa-edit"></i>
               </button>
+              {% endif %}
+              {% if can_delete %}
               <form method="POST" action="{{ url_for('contractor_issues.delete', id=r.id) }}" class="d-inline"
                 onsubmit="return confirm('Delete this issue record? Stock will be restored.');">
                 <button type="submit" class="btn btn-sm btn-outline-danger">
                   <i class="fas fa-trash"></i>
                 </button>
               </form>
+              {% endif %}
+              {% if not can_edit and not can_delete %}
+              <span class="text-muted small">View only</span>
+              {% endif %}
             </td>
           </tr>
 
+          {% if can_edit %}
           <!-- Edit Modal -->
           <div class="modal fade" id="editModal{{ r.id }}" tabindex="-1">
             <div class="modal-dialog modal-lg">
@@ -195,6 +207,7 @@
               </div>
             </div>
           </div>
+          {% endif %}
 
           {% else %}
           <tr>
@@ -207,6 +220,7 @@
   </div>
 </div>
 
+{% if can_create %}
 <!-- Add / Issue to Contractor Modal -->
 <div class="modal fade" id="addModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -236,11 +250,16 @@
 
           <div class="mb-3">
             <label class="form-label">Item(s) *</label>
-            <select id="itemSelect" class="form-select" multiple>
-              {% for it in items %}
-              <option value="{{ it.id }}">{{ it.label }}</option>
-              {% endfor %}
-            </select>
+            <!-- ← CHANGED — items with zero stock are rendered `disabled` so
+                 they can never be selected in the first place, not just
+                 rejected after the fact on submit. -->
+                 <select id="itemSelect" class="form-select" multiple>
+                  {% for it in items %}
+                  <option value="{{ it.id }}">
+                    {{ it.label }}
+                  </option>
+                  {% endfor %}
+                </select>
           </div>
 
           <div class="row g-2">
@@ -282,6 +301,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 
 {% endblock %}
 
@@ -326,6 +346,10 @@
           placeholderValue: 'Select item(s)...', shouldSort: false
         });
         itSel._choices = itemChoices;
+
+        // ← ADD — Choices.js doesn't automatically style native `disabled`
+        // options as disabled in its rendered dropdown, so mark them here.
+
       }
     });
 
@@ -384,8 +408,12 @@
       var empSel = document.getElementById('employeeSelect');
       var itSel = document.getElementById('itemSelect');
       var empVals = Array.from(empSel.selectedOptions).map(o => o.value).filter(v => v);
-      var itVals = Array.from(itSel.selectedOptions).map(o => o.value);
-
+      // ← CHANGED — belt-and-suspenders: even though disabled options can't
+      // normally be selected, explicitly drop any out-of-stock item id that
+      // sneaks into the selection before it's ever posted to the server.
+      var itVals = Array.from(itSel.selectedOptions)
+    .map(o => o.value)
+    .filter(v => v);
       if (!document.getElementById('contractorSelect').value || empVals.length === 0 || itVals.length === 0) {
         e.preventDefault();
         alert('Please select a contractor, at least one employee, and at least one item.');
