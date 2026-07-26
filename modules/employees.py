@@ -363,9 +363,11 @@ def search():
     dept = session.get('department')
     if dept:
         c.execute("SELECT id, emp_code, name, department, contractor FROM employees WHERE (name ILIKE %s OR emp_code ILIKE %s) AND department=%s AND status='Active' LIMIT 20",
+        # c.execute("SELECT id, emp_code, name, department, contractor, designation, status FROM employees WHERE (name ILIKE %s OR emp_code ILIKE %s) AND department=%s AND status='Active' LIMIT 20",
                   (f'%{q}%', f'%{q}%', dept))
     else:
         c.execute("SELECT id, emp_code, name, department, contractor FROM employees WHERE (name ILIKE %s OR emp_code ILIKE %s) AND status='Active' LIMIT 20",
+        # c.execute("SELECT id, emp_code, name, department, contractor, designation, status FROM employees WHERE (name ILIKE %s OR emp_code ILIKE %s) AND status='Active' LIMIT 20",
                   (f'%{q}%', f'%{q}%'))
     results = fetchall(c)
     conn.close()
@@ -542,12 +544,32 @@ def by_contractor_partial():
     if not name:
         return '<div class="p-3 text-muted">No contractor specified.</div>'
 
+    role = session.get('role')
+    is_admin = role in ["Admin", "Super Admin"]
+    dept = session.get('department')
+
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT * FROM employees WHERE contractor=%s AND status='Active' ORDER BY name", (name,))
+
+    if is_admin:
+        c.execute(
+            "SELECT * FROM employees WHERE contractor=%s AND status='Active' ORDER BY name",
+            (name,)
+        )
+    else:
+        c.execute(
+            "SELECT * FROM employees WHERE contractor=%s AND status='Active' "
+            "AND LOWER(TRIM(department))=LOWER(TRIM(%s)) ORDER BY name",
+            (name, dept)
+        )
     employees = fetchall(c)
-    c.execute("SELECT name FROM departments ORDER BY name")
+
+    if is_admin:
+        c.execute("SELECT name FROM departments ORDER BY name")
+    else:
+        c.execute("SELECT name FROM departments WHERE LOWER(TRIM(name))=LOWER(TRIM(%s))", (dept,))
     departments = fetchall(c)
+
     c.execute("SELECT name FROM contractors ORDER BY name")
     contractors = fetchall(c)
     conn.close()
@@ -558,7 +580,6 @@ def by_contractor_partial():
     return render_template('contractor_employees_table.html',
                             employees=employees, departments=departments, contractors=contractors,
                             can_edit=can_edit, can_delete=can_delete)
-
 
 @employees_bp.route('/contractors')
 def contractors():

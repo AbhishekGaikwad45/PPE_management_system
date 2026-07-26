@@ -19,6 +19,8 @@
 
 {% block content %}
 
+<div id="empPagePermissions" data-can-edit="{{ '1' if can_edit else '0' }}" data-can-delete="{{ '1' if can_delete else '0' }}" style="display:none;"></div>
+
 <!-- Top Buttons -->
 {% if can_create %}
 <div class="d-flex justify-content-end mb-3 gap-2 flex-wrap">
@@ -324,6 +326,67 @@
 </div>
 {% endif %}
 
+{% if can_edit %}
+<!-- Dynamic Edit Modal — used ONLY by search results -->
+<div class="modal fade" id="dynamicEditModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Employee</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" id="dynamicEditForm">
+        <input type="hidden" name="return_dept_filter" value="{{ dept_filter }}">
+        <input type="hidden" name="return_contractor_filter" value="{{ contractor_filter }}">
+        <input type="hidden" name="return_page" value="{{ page }}">
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label">Emp Code</label>
+            <input type="text" name="emp_code" id="dynEmpCode" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Name</label>
+            <input type="text" name="name" id="dynName" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Department</label>
+            <select name="department" class="form-select" id="dynDept">
+              <option value="">-- Select --</option>
+              {% for d in departments %}
+              <option value="{{ d.name }}">{{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Contractor</label>
+            <select name="contractor" class="form-select" id="dynContr">
+              <option value="">-- None --</option>
+              {% for c in contractors %}
+              <option value="{{ c.name }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Designation</label>
+            <input type="text" name="designation" id="dynDesig" class="form-control">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Status</label>
+            <select name="status" id="dynStatus" class="form-select">
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-jsw">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block extra_js %}
@@ -338,19 +401,38 @@
   var originalRowsHTML = tbody.innerHTML;   // remember the normal paginated rows so we can restore them
   var debounceTimer = null;
 
+  var permsEl = document.getElementById('empPagePermissions');
+  var canEdit = permsEl.getAttribute('data-can-edit') === '1';
+  var canDelete = permsEl.getAttribute('data-can-delete') === '1';
+  var searchResultsById = {};
+
+  function actionButtonsHtml(e) {
+    if (!canEdit && !canDelete) {
+      return '<span class="text-muted small">View only</span>';
+    }
+    var html = '';
+    if (canEdit) {
+      html += '<button type="button" class="btn btn-sm btn-outline-primary me-1 js-search-edit-btn" ' +
+              'data-emp-id="' + e.id + '"><i class="fas fa-edit"></i></button>';
+    }
+    if (canDelete) {
+      html += '<a href="/employees/delete/' + e.id + '" class="btn btn-sm btn-outline-danger" ' +
+              'onclick="return confirm(\'Delete this employee?\')"><i class="fas fa-trash"></i></a>';
+    }
+    return html;
+  }
+
   searchInput.addEventListener('keyup', function () {
     var val = this.value.trim();
     clearTimeout(debounceTimer);
 
     if (val === '') {
-      // Empty box -> restore the normal paginated view
       tbody.innerHTML = originalRowsHTML;
       statusEl.style.display = 'none';
       if (paginationBar) paginationBar.style.display = '';
       return;
     }
 
-    // Debounce so we don't fire a request on every keystroke
     debounceTimer = setTimeout(function () {
       statusEl.style.display = 'block';
       statusEl.textContent = 'Searching all employees...';
@@ -358,7 +440,7 @@
       fetch('/employees/search?q=' + encodeURIComponent(val))
         .then(function (res) { return res.json(); })
         .then(function (results) {
-          if (paginationBar) paginationBar.style.display = 'none'; // hide pagination while showing search results
+          if (paginationBar) paginationBar.style.display = 'none';
 
           if (!results.length) {
             tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No matching employees found.</td></tr>';
@@ -368,15 +450,18 @@
 
           statusEl.textContent = results.length + ' match(es) found (showing up to 20). Clear the search box to return to the full list.';
 
+          searchResultsById = {};
+          results.forEach(function (e) { searchResultsById[e.id] = e; });
+
           var rowsHtml = results.map(function (e) {
             return '<tr class="emp-row">' +
               '<td><code class="text-danger">' + (e.emp_code || '') + '</code></td>' +
               '<td><strong>' + (e.name || '') + '</strong></td>' +
               '<td>' + (e.department || '-') + '</td>' +
               '<td>' + (e.contractor || '-') + '</td>' +
-              '<td>-</td>' +
-              '<td><span class="badge bg-success">Active</span></td>' +
-              '<td><span class="text-muted small">Open full list to edit/delete</span></td>' +
+              '<td>' + (e.designation || '-') + '</td>' +
+              '<td><span class="badge ' + (e.status === 'Active' ? 'bg-success' : 'bg-secondary') + '">' + (e.status || '-') + '</span></td>' +
+              '<td>' + actionButtonsHtml(e) + '</td>' +
               '</tr>';
           }).join('');
           tbody.innerHTML = rowsHtml;
@@ -387,6 +472,41 @@
         });
     }, 300);
   });
+
+  tbody.addEventListener('click', function (evt) {
+    var btn = evt.target.closest('.js-search-edit-btn');
+    if (!btn) return;
+
+    var emp = searchResultsById[btn.getAttribute('data-emp-id')];
+    if (!emp) return;
+
+    var form = document.getElementById('dynamicEditForm');
+    form.action = '/employees/edit/' + emp.id;
+    document.getElementById('dynEmpCode').value = emp.emp_code || '';
+    document.getElementById('dynName').value = emp.name || '';
+    document.getElementById('dynDesig').value = emp.designation || '';
+    setSelectValue(document.getElementById('dynDept'), emp.department);
+    setSelectValue(document.getElementById('dynContr'), emp.contractor);
+    document.getElementById('dynStatus').value = emp.status || 'Active';
+
+    var modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('dynamicEditModal'));
+    modal.show();
+  });
+
+  function setSelectValue(selectEl, value) {
+    if (!selectEl) return;
+    value = value || '';
+    var exists = Array.prototype.some.call(selectEl.options, function (opt) {
+      return opt.value === value;
+    });
+    if (value && !exists) {
+      var opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = value + ' (current)';
+      selectEl.insertBefore(opt, selectEl.firstChild.nextSibling);
+    }
+    selectEl.value = value;
+  }
 })();
 
 // ── 2. Searchable dropdowns (Choices.js) ────────────────────

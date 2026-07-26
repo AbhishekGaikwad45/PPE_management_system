@@ -10,8 +10,9 @@ table so existing behaviour keeps working for them.
 
 Users now also have an `email` column (used for the forgot-password OTP flow).
 
-Run init_db() once (see database/db.py) before using this file — it creates
-the `department_role_permissions` table this module depends on.
+Run database migrations once before using this file:
+    python init_database.py   (or: alembic upgrade head)
+It creates the `department_role_permissions` table this module depends on.
 """
 
 from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, session, flash

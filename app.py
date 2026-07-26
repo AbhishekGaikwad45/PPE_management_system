@@ -1,5 +1,5 @@
 from flask import Flask, render_template, redirect, url_for, session, flash
-from database.db import init_db
+from database.migrations import run_migrations
 from modules.auth import auth_bp
 from modules.employees import employees_bp
 from modules.items import items_bp
@@ -42,5 +42,8 @@ def index():
     return redirect(url_for('dashboard.index'))
 
 if __name__ == '__main__':
-    init_db()
+    # Run migrations once with: python init_database.py  (or: alembic upgrade head)
+    # Set RUN_MIGRATIONS_ON_STARTUP=true in .env only if you want this on every start.
+    if os.environ.get('RUN_MIGRATIONS_ON_STARTUP', '').lower() in ('1', 'true', 'yes'):
+        run_migrations()
     app.run(debug=True, host='0.0.0.0', port=5002)

@@ -1,0 +1,45 @@
+alembic heads                 # check current head before writing down_revision
+alembic revision -m "add role to users"   # generates a blank migration file
+alembic upgrade head          # apply it
+alembic current               # verify it applied
+
+
+
+
+new script for table creation
+
+
+"""Add <column_name> to <table_name>.
+
+Revision ID: 003_add_new_column
+Revises: 002_add_created_at
+Create Date: 2026-07-26
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+revision: str = '003_add_new_column'
+down_revision: Union[str, None] = '002_add_created_at'   # points to the previous head
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    op.add_column(
+        'table_name',                          # name of the table to modify
+        sa.Column(
+            'column_name',                     # name of the new column
+            sa.String(),                       # data type (see cheat-sheet below)
+            nullable=True,                     # use True if the table already has rows
+                                                # and you don't want to break them;
+                                                # use False + server_default if required
+            server_default=None,               # optional default value for existing rows,
+                                                # e.g. sa.text("'Active'")
+        ),
+    )
+
+
+def downgrade() -> None:
+    op.drop_column('table_name', 'column_name')  # reverses the upgrade — removes the column
