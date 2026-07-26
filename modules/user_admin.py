@@ -18,6 +18,7 @@ It creates the `department_role_permissions` table this module depends on.
 from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, session, flash
 from database.db import get_db, fetchall, fetchone
 from functools import wraps
+from modules.logs import log_action
 
 users_admin_bp = Blueprint('users_admin', __name__, url_prefix='/admin/users')
 
@@ -192,11 +193,13 @@ def add():
     c = conn.cursor()
     try:
         c.execute(
-            "INSERT INTO users (username, password, role, full_name, department, email) VALUES (%s,%s,%s,%s,%s,%s)",
+            "INSERT INTO users (username, password, role, full_name, department, email) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
             (username, password, role, full_name, department, email)
         )
+        new_id = c.fetchone()[0]
         conn.commit()
         flash(f"User '{username}' created successfully.", 'success')
+        log_action('create', 'users', new_id, f"Created user '{username}' (role: {role})")
     except Exception as e:
         conn.rollback()
         flash(f"Error creating user: {e}", 'danger')
@@ -229,6 +232,9 @@ def edit(user_id):
             )
         conn.commit()
         flash('User updated successfully.', 'success')
+        log_action('edit', 'users', user_id,
+                    f"Updated user id {user_id} (name: {full_name}, role: {role}"
+                    + (", password changed)" if password else ")"))
     except Exception as e:
         conn.rollback()
         flash(f"Error updating user: {e}", 'danger')
@@ -259,6 +265,7 @@ def delete(user_id):
         c.execute("DELETE FROM users WHERE id=%s", (user_id,))
         conn.commit()
         flash(f"User '{row['username']}' deleted.", 'success')
+        log_action('delete', 'users', user_id, f"Deleted user '{row['username']}'")
     except Exception as e:
         conn.rollback()
         flash(f"Error deleting user: {e}", 'danger')
@@ -293,6 +300,7 @@ def add_department():
         c.execute("DELETE FROM deleted_departments WHERE LOWER(name)=LOWER(%s)", (name,))
         conn.commit()
         flash(f"Department '{name}' added.", 'success')
+        log_action('create', 'departments', None, f"Added department '{name}'")
     except Exception as e:
         conn.rollback()
         flash(f"Error adding department: {e}", 'danger')
@@ -320,6 +328,7 @@ def rename_department():
             c.execute(f"UPDATE {table} SET department=%s WHERE department=%s", (new_name, old_name))
         conn.commit()
         flash(f"Department renamed: '{old_name}' → '{new_name}'.", 'success')
+        log_action('edit', 'departments', None, f"Renamed department '{old_name}' → '{new_name}'")
     except Exception as e:
         conn.rollback()
         flash(f"Error renaming department: {e}", 'danger')
@@ -353,6 +362,7 @@ def delete_department():
         )
         conn.commit()
         flash(f"Department '{name}' deleted. It will not be re-created by the HR sync anymore.", 'success')
+        log_action('delete', 'departments', None, f"Deleted department '{name}'")
         if emp_count or user_count:
             flash(f"Note: {emp_count} employee(s) and {user_count} user(s) still have '{name}' recorded "
                   f"against them — reassign them manually if needed.", 'warning')

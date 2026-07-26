@@ -5,11 +5,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SQL_CONFIG = {
-    'driver':   os.environ.get('MSSQL_DRIVER',   'SQL Server'),
-    'server':   os.environ.get('MSSQL_SERVER',   '172.21.30.101'),
-    'database': os.environ.get('MSSQL_DATABASE', 'JSW_Dharamtar'),
-    'uid':      os.environ.get('MSSQL_UID',      'Report'),
-    'pwd':      os.environ.get('MSSQL_PWD',      ''),
+    'driver':   os.environ.get('MSSQL_DRIVER'),
+    'server':   os.environ.get('MSSQL_SERVER'),
+    'database': os.environ.get('MSSQL_DATABASE'),
+    'uid':      os.environ.get('MSSQL_UID'),
+    'pwd':      os.environ.get('MSSQL_PWD'),
 }
 
 

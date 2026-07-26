@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, url_for, session, flash
+from flask import Flask, render_template, redirect, url_for, session, flash, request
 from database.migrations import run_migrations
 from modules.auth import auth_bp
 from modules.employees import employees_bp
@@ -14,7 +14,10 @@ from modules.user_admin import users_admin_bp
 from modules.contractor_issues import contractor_issues_bp
 from modules.employee_sync import employee_sync_bp
 from modules.password_reset import password_reset_bp
+from modules.logs import logs_bp, log_error
+from modules.mail_admin import mail_admin_bp
 import os
+import traceback
 
 app = Flask(__name__)
 app.secret_key = "ppe_jsw_secret_2024"
@@ -34,6 +37,28 @@ app.register_blueprint(users_admin_bp)
 app.register_blueprint(contractor_issues_bp)
 app.register_blueprint(employee_sync_bp)
 app.register_blueprint(password_reset_bp)
+app.register_blueprint(logs_bp)
+app.register_blueprint(mail_admin_bp)
+
+
+@app.errorhandler(Exception)
+def handle_unhandled_exception(e):
+    """Logs every unhandled exception to error_logs (visible on Admin > Logs)
+    then re-raises so Flask's normal error handling (debug page in dev,
+    500 page in prod) still runs exactly as before."""
+    tb_str = traceback.format_exc()
+    last_frame = traceback.extract_tb(e.__traceback__)[-1] if e.__traceback__ else None
+    source = f"{os.path.basename(last_frame.filename)}:{last_frame.lineno}" if last_frame else "app"
+
+    log_error(
+        source=source,
+        message=f"Unhandled exception on {request.method} {request.path}",
+        traceback_str=tb_str,
+        method=request.method,
+        path=request.path,
+    )
+    raise e
+
 
 @app.route('/')
 def index():

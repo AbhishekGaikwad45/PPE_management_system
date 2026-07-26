@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Mail{% endblock %}
+{% block page_title %}Mail{% endblock %}
+
+{% block content %}
+
+<div class="card mb-4">
+  <div class="card-header bg-light fw-bold d-flex justify-content-between align-items-center">
+    SMTP Configuration
+    <div class="form-check form-switch mb-0">
+      <input class="form-check-input" type="checkbox" id="enabledSwitch" form="smtpForm" name="enabled"
+             {% if config and config.enabled %}checked{% endif %}>
+      <label class="form-check-label" for="enabledSwitch">Mail Enabled</label>
+    </div>
+  </div>
+  <div class="card-body">
+    <form id="smtpForm" method="POST" action="{{ url_for('mail_admin.save_config') }}">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Host</label>
+          <input type="text" name="host" class="form-control" placeholder="smtp.gmail.com"
+                 value="{{ config.host if config else '' }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Port</label>
+          <input type="number" name="port" class="form-control" placeholder="587"
+                 value="{{ config.port if config else 587 }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Schedule (minutes)</label>
+          <input type="number" name="schedule_minutes" class="form-control" placeholder="5"
+                 value="{{ config.schedule_minutes if config else 5 }}">
+        </div>
+
+        <div class="col-md-6">
+          <label class="form-label">Username</label>
+          <input type="text" name="username" class="form-control"
+                 value="{{ config.username if config else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Password</label>
+          <input type="password" name="password" class="form-control"
+                 placeholder="{% if config and config.password %}•••••••••••• (leave blank to keep){% else %}App password{% endif %}">
+        </div>
+
+        <div class="col-md-6">
+          <label class="form-label">From Email</label>
+          <input type="email" name="from_email" class="form-control"
+                 value="{{ config.from_email if config else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">From Name</label>
+          <input type="text" name="from_name" class="form-control" placeholder="PPE Management System"
+                 value="{{ config.from_name if config else '' }}">
+        </div>
+
+        <div class="col-12">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="useTls" name="use_tls"
+                   {% if not config or config.use_tls %}checked{% endif %}>
+            <label class="form-check-label" for="useTls">Use TLS (STARTTLS)</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-3 d-flex gap-2">
+        <button type="submit" class="btn btn-jsw"><i class="fas fa-save me-1"></i> Save Config</button>
+      </div>
+    </form>
+    <form method="POST" action="{{ url_for('mail_admin.send_now') }}" class="d-inline">
+      <button type="submit" class="btn btn-outline-secondary mt-2">
+        <i class="fas fa-paper-plane me-1"></i> Send Now
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">Mail Queue <small class="text-muted">({{ queue|length }} record(s))</small></h5>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('mail_admin.index') }}" class="btn btn-sm btn-outline-secondary">
+      <i class="fas fa-sync me-1"></i> Refresh
+    </a>
+    <form method="POST" action="{{ url_for('mail_admin.retry_failed') }}">
+      <button type="submit" class="btn btn-sm btn-outline-warning">
+        <i class="fas fa-redo me-1"></i> Retry Failed
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive" style="max-height:480px;">
+      <table class="table table-hover table-sm mb-0">
+        <thead style="position:sticky; top:0;">
+          <tr>
+            <th>ID</th>
+            <th>To</th>
+            <th>Subject</th>
+            <th>Status</th>
+            <th>Retries</th>
+            <th>Created</th>
+            <th>Sent</th>
+            <th>Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in queue %}
+          <tr>
+            <td>{{ m.id }}</td>
+            <td>{{ m.to_email }}</td>
+            <td>{{ m.subject }}</td>
+            <td>
+              {% if m.status == 'sent' %}<span class="badge bg-success">sent</span>
+              {% elif m.status == 'failed' %}<span class="badge bg-danger">failed</span>
+              {% else %}<span class="badge bg-secondary">pending</span>{% endif %}
+            </td>
+            <td>{{ m.retries }}/3</td>
+            <td class="text-nowrap">{{ m.created_at }}</td>
+            <td class="text-nowrap">{{ m.sent_at or '—' }}</td>
+            <td class="small text-danger">{{ m.error or '' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="text-center text-muted py-3">Mail queue is empty.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

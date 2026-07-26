@@ -153,23 +153,13 @@ def index():
         c.execute("SELECT name FROM departments WHERE name=%s", (dept,))
     raw_departments = fetchall(c)
 
-    seen_display = {}
+    seen_raw = set()
     departments = []
     for row in raw_departments:
         raw_name = row['name']
-        disp = _display_dept_name(raw_name)
-        if disp not in seen_display:
-            seen_display[disp] = raw_name
-            departments.append({'name': raw_name, 'display': disp})
-    departments.sort(key=lambda d: d['display'])
-
-    seen_display = set()
-    departments = []
-    for row in raw_departments:
-        disp = _display_dept_name(row['name'])
-        if disp not in seen_display:
-            seen_display.add(disp)
-            departments.append({'name': disp})
+        if raw_name not in seen_raw:
+            seen_raw.add(raw_name)
+            departments.append({'name': raw_name})
     departments.sort(key=lambda d: d['name'])
 
     # Contractors

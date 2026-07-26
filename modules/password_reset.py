@@ -27,7 +27,7 @@ password_reset_bp = Blueprint('password_reset', __name__)
 OTP_VALID_MINUTES = 10
 
 # Flip this to False to restore the generic, non-leaking message.
-DEBUG_PASSWORD_RESET = True
+DEBUG_PASSWORD_RESET = False
 
 
 def _generate_otp():
@@ -105,10 +105,7 @@ def forgot_password():
         # --- SUCCESS ---
         session['reset_user_id'] = user['id']
         session['reset_username'] = user['username']
-        if DEBUG_PASSWORD_RESET:
-            flash(f"[DEBUG] Email sent successfully to {user['email']}. OTP code was: {otp_code}", 'success')
-        else:
-            flash(generic_msg, 'info')
+        flash(f"OTP sent successfully to {user['email']}.", 'success')
         return redirect(url_for('password_reset.verify_otp'))
 
     return render_template('login/forgot_password.html')

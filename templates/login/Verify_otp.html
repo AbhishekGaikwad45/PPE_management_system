@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reset Password - PPE Management System</title>
+<title>Verify OTP - PPE Management System</title>
 <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 <style>
@@ -13,13 +13,10 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-
-    /* Professional blue gradient */
     background: linear-gradient(135deg,
         #12355B 0%,
         #2E6BB7 45%,
         #4A5568 100%);
-
     font-family: "Segoe UI", sans-serif;
 }
 
@@ -28,20 +25,15 @@ body {
     max-width: 420px;
     padding: 40px;
     border-radius: 18px;
-
-    /* Login card gradient */
     background: linear-gradient(
         145deg,
         #ffffff 0%,
         #f5f9ff 50%,
         #e7f1ff 100%
     );
-
     border: 1px solid rgba(255,255,255,0.3);
-
     box-shadow:
         0 20px 60px rgba(0,0,0,0.30);
-
     transition: all 0.3s ease;
 }
 
@@ -52,13 +44,16 @@ body {
 }
 .form-control:focus { border-color:#2563A8; box-shadow: 0 0 0 3px rgba(37,99,168,0.15); }
 .user-hint { background:#EEF2FF; border-radius:8px; padding:12px; font-size:12px; }
+.otp-input { letter-spacing: 6px; font-size: 22px; text-align: center; font-weight: 700; }
+.timer-text { font-size: 13px; color: #6b7280; }
+.timer-text .count { font-weight: 700; color: #12355B; }
 </style>
 </head>
 <body>
 <div class="login-card">
   <div class="text-center mb-4">
     <div class="login-logo">⚓</div>
-    <h4 style="color:#1A3A5C; font-weight:800;">Set New Password</h4>
+    <h4 style="color:#1A3A5C; font-weight:800;">Verify OTP</h4>
     <p class="text-muted small">JSW Dharamtar Port Operations Safety Management</p>
   </div>
 
@@ -68,29 +63,79 @@ body {
     {% endfor %}
   {% endwith %}
 
-  <form method="POST">
-    <div class="mb-3">
-      <label class="form-label fw-semibold">New Password</label>
-      <div class="input-group">
-        <span class="input-group-text"><i class="fas fa-lock text-muted"></i></span>
-        <input type="password" name="password" class="form-control" placeholder="At least 6 characters" required autofocus>
-      </div>
-    </div>
+  <div class="user-hint mb-3">
+    Enter the 6-digit OTP sent to your registered email. It is valid for 10 minutes.
+  </div>
+
+  <form method="POST" id="otpForm">
     <div class="mb-2">
-      <label class="form-label fw-semibold">Confirm Password</label>
+      <label class="form-label fw-semibold">OTP Code</label>
       <div class="input-group">
-        <span class="input-group-text"><i class="fas fa-lock text-muted"></i></span>
-        <input type="password" name="confirm_password" class="form-control" placeholder="Re-enter password" required>
+        <span class="input-group-text"><i class="fas fa-key text-muted"></i></span>
+        <input type="text" name="otp" class="form-control otp-input" placeholder="------"
+               required autofocus maxlength="6" inputmode="numeric" pattern="[0-9]{6}">
       </div>
     </div>
 
-    <div class="mb-3"></div>
+    <div class="mb-3 text-center timer-text" id="timerBox">
+      Enter OTP within <span class="count" id="countdown">30</span> seconds
+    </div>
 
-    <button type="submit" class="btn btn-login btn-primary w-100 text-white">
-      <i class="fas fa-save me-2"></i>Save New Password
+    <button type="submit" class="btn btn-login btn-primary w-100 text-white" id="otpBtn">
+      <i class="fas fa-check-circle me-2"></i>Verify OTP
     </button>
   </form>
+
+  <form method="POST" action="{{ url_for('password_reset.forgot_password') }}" id="resendForm" class="mt-2">
+    <input type="hidden" name="identifier" value="{{ session.get('reset_username', '') }}">
+    <button type="submit" class="btn btn-outline-secondary w-100" id="resendBtn" disabled>
+      <i class="fas fa-redo me-2"></i>Resend OTP
+    </button>
+  </form>
+
+  <div class="text-center mt-3">
+    <a href="{{ url_for('password_reset.forgot_password') }}" class="small text-muted">
+      <i class="fas fa-arrow-left me-1"></i>Request a new OTP
+    </a>
+  </div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+<script>
+  // ---- 30 second countdown ----
+  let secondsLeft = 30;
+  const countdownEl = document.getElementById('countdown');
+  const timerBox = document.getElementById('timerBox');
+  const otpBtn = document.getElementById('otpBtn');
+  const resendBtn = document.getElementById('resendBtn');
+
+  const timerInterval = setInterval(function () {
+    secondsLeft--;
+    countdownEl.textContent = secondsLeft;
+
+    if (secondsLeft <= 0) {
+      clearInterval(timerInterval);
+      timerBox.textContent = 'OTP time expired. Please resend.';
+      otpBtn.disabled = true;
+      resendBtn.disabled = false;
+    }
+  }, 1000);
+
+  // ---- Verify OTP submit (success message + 2s delay) ----
+  document.getElementById('otpForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const form = this;
+    otpBtn.disabled = true;
+    otpBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i>OTP Verified Successfully...';
+    otpBtn.classList.remove('btn-primary');
+    otpBtn.classList.add('btn-success');
+    setTimeout(function () { form.submit(); }, 2000);
+  });
+
+  // ---- Resend OTP button ----
+  document.getElementById('resendForm').addEventListener('submit', function () {
+    resendBtn.disabled = true;
+    resendBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Resending...';
+  });
+</script>
 </body>
 </html>

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Logs{% endblock %}
+{% block page_title %}Logs{% endblock %}
+
+{% block content %}
+
+<div class="card mb-4">
+  <div class="card-header bg-light fw-bold">Activity — last 8 days</div>
+  <div class="card-body" style="height:220px;">
+    <canvas id="activityChart"></canvas>
+  </div>
+</div>
+
+<!-- Activity / Audit log -->
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">Activity Log <small class="text-muted">(who created / edited / deleted what)</small></h5>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="GET" class="row g-2 mb-3">
+      <div class="col-auto">
+        <div class="btn-group" role="group">
+          <a href="{{ url_for('logs.index', action='all', module=module_filter, q=search) }}"
+             class="btn btn-sm {% if action_filter=='all' %}btn-jsw{% else %}btn-outline-secondary{% endif %}">All</a>
+          <a href="{{ url_for('logs.index', action='create', module=module_filter, q=search) }}"
+             class="btn btn-sm {% if action_filter=='create' %}btn-jsw{% else %}btn-outline-secondary{% endif %}">Create</a>
+          <a href="{{ url_for('logs.index', action='edit', module=module_filter, q=search) }}"
+             class="btn btn-sm {% if action_filter=='edit' %}btn-jsw{% else %}btn-outline-secondary{% endif %}">Edit</a>
+          <a href="{{ url_for('logs.index', action='delete', module=module_filter, q=search) }}"
+             class="btn btn-sm {% if action_filter=='delete' %}btn-jsw{% else %}btn-outline-secondary{% endif %}">Delete</a>
+        </div>
+      </div>
+      <div class="col-auto">
+        <select name="module" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">All modules</option>
+          {% for m in modules_list %}
+          <option value="{{ m }}" {% if module_filter == m %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <input type="hidden" name="action" value="{{ action_filter }}">
+      <div class="col-auto flex-grow-1" style="min-width:220px;">
+        <input type="text" name="q" value="{{ search }}" class="form-control form-control-sm"
+               placeholder="Search user or description...">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-search"></i></button>
+      </div>
+    </form>
+
+    <div class="table-responsive" style="max-height:420px;">
+      <table class="table table-hover table-sm mb-0">
+        <thead style="position:sticky; top:0;">
+          <tr>
+            <th>Time</th>
+            <th>User</th>
+            <th>Action</th>
+            <th>Module</th>
+            <th>Record</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in audit_rows %}
+          <tr>
+            <td class="text-nowrap">{{ r.created_at }}</td>
+            <td>{{ r.full_name or r.username or '—' }}</td>
+            <td>
+              {% if r.action == 'create' %}<span class="badge bg-success">Create</span>
+              {% elif r.action == 'edit' %}<span class="badge bg-warning text-dark">Edit</span>
+              {% elif r.action == 'delete' %}<span class="badge bg-danger">Delete</span>
+              {% else %}<span class="badge bg-secondary">{{ r.action }}</span>{% endif %}
+            </td>
+            <td>{{ r.module }}</td>
+            <td>{{ r.record_id or '—' }}</td>
+            <td>{{ r.description }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-muted py-3">No activity logs found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Error / exception log -->
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">Error Log</h5>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <form method="GET" class="row g-2 mb-3">
+      <input type="hidden" name="action" value="{{ action_filter }}">
+      <input type="hidden" name="module" value="{{ module_filter }}">
+      <input type="hidden" name="q" value="{{ search }}">
+      <div class="col-auto flex-grow-1" style="min-width:260px;">
+        <input type="text" name="eq" value="{{ err_search }}" class="form-control form-control-sm"
+               placeholder="Search message, source or path...">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-search"></i></button>
+      </div>
+    </form>
+
+    <div style="max-height:500px; overflow-y:auto;">
+      {% for e in error_rows %}
+      <div class="border rounded mb-2">
+        <div class="d-flex justify-content-between align-items-start px-3 py-2 bg-light" style="cursor:pointer;"
+             data-bs-toggle="collapse" data-bs-target="#tb{{ e.id }}">
+          <div>
+            <span class="badge bg-danger me-2">{{ e.level }}</span>
+            <span class="fw-semibold">{{ e.method }} {{ e.path }}</span>
+            <div class="small text-muted">{{ e.message }}</div>
+          </div>
+          <div class="text-end text-nowrap small text-muted">
+            {{ e.created_at }}<br>{{ e.source }}
+          </div>
+        </div>
+        {% if e.traceback %}
+        <div class="collapse" id="tb{{ e.id }}">
+          <pre class="bg-dark text-light p-3 mb-0 small" style="white-space:pre-wrap;">{{ e.traceback }}</pre>
+        </div>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="text-center text-muted py-3">No errors logged. 🎉</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+  const activityData = {{ activity_by_day | tojson }};
+  new Chart(document.getElementById('activityChart'), {
+    type: 'bar',
+    data: {
+      labels: activityData.map(r => r.day),
+      datasets: [{
+        data: activityData.map(r => r.cnt),
+        backgroundColor: 'rgba(47,128,237,.75)',
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+    }
+  });
+</script>
+
+{% endblock %}

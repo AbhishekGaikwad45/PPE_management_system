@@ -6,11 +6,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DB_CONFIG = {
-    'host':     os.environ.get('PG_HOST',     'localhost'),
-    'port':     os.environ.get('PG_PORT',     '5432'),
-    'database': os.environ.get('PG_DATABASE', 'ppe_db'),
-    'user':     os.environ.get('PG_USER',     'postgres'),
-    'password': os.environ.get('PG_PASSWORD', 'postgres'),
+    'host':     os.environ.get('PG_HOST'),
+    'port':     os.environ.get('PG_PORT'),
+    'database': os.environ.get('PG_DATABASE'),
+    'user':     os.environ.get('PG_USER'),
+    'password': os.environ.get('PG_PASSWORD'),
 }
 
 
