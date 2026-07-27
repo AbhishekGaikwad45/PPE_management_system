@@ -16,6 +16,7 @@ from modules.employee_sync import employee_sync_bp
 from modules.password_reset import password_reset_bp
 from modules.logs import logs_bp, log_error
 from modules.mail_admin import mail_admin_bp
+from modules.department_stock import department_stock_bp
 import os
 import traceback
 
@@ -39,6 +40,7 @@ app.register_blueprint(employee_sync_bp)
 app.register_blueprint(password_reset_bp)
 app.register_blueprint(logs_bp)
 app.register_blueprint(mail_admin_bp)
+app.register_blueprint(department_stock_bp)
 
 
 @app.errorhandler(Exception)
@@ -65,6 +67,10 @@ def index():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
     return redirect(url_for('dashboard.index'))
+
+@app.route("/favicon.ico")
+def favicon():
+    return "", 204    
 
 if __name__ == '__main__':
     # Run migrations once with: python init_database.py  (or: alembic upgrade head)

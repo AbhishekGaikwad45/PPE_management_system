@@ -7,6 +7,7 @@
   <title>{% block title %}PPE & Equipment Management{% endblock %} | JSW Port Operations</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  
   <style>
     :root {
       --jsw-blue: #12355B;
@@ -397,15 +398,16 @@
   <div class="sidebar" id="sidebar">
     <div class="logo-area">
 
-      <img src="https://jswin.s3.ap-south-1.amazonaws.com/jswinfrastructure/uploads/2026/06/JSW-Infra-Logo2.svg"
-        alt="JSW Logo" style="
-        width:180px;
-        height:auto;
-        display:block;
-        margin:0 auto 15px auto;
-        object-fit:contain;
-        filter:drop-shadow(0 4px 8px rgba(0,0,0,.25));
-    ">
+      <img src="{{ url_for('static', filename='img/jsw.png') }}"
+      alt="JSW Logo"
+      style="
+         width:180px;
+         height:auto;
+         display:block;
+         margin:0 auto 0px auto;
+         object-fit:contain;
+         filter:drop-shadow(0 4px 8px rgba(0,0,0,.25));
+ ">
 
       <h5>PPE & Equipment</h5>
 
@@ -434,6 +436,11 @@
       <a class="nav-link {% if 'items' in request.endpoint %}active{% endif %}" href="{{ url_for('items.index') }}">
         <i class="fas fa-boxes"></i> Item Master
       </a>
+      {% if session.get('role') in ['Admin', 'Super Admin'] %}
+      <a href="{{ url_for('department_stock.index') }}" class="nav-link">
+        <i class="fas fa-chart-bar me-2"></i> Department Stock
+      </a>
+      {% endif %}
     </div>
 
     <div class="nav-section">

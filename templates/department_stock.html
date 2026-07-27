@@ -1,0 +1,186 @@
+{% extends 'base.html' %}
+{% block title %}Department-wise Stock{% endblock %}
+{% block page_title %}Department-wise Item Stock{% endblock %}
+
+{% block extra_css %}
+<style>
+  .stock-low { background-color: #fdecea !important; }   /* low stock highlight */
+  .stock-ok  { background-color: #eafaf1 !important; }   /* healthy stock highlight */
+  .dept-accordion-btn { font-weight: 600; }
+  .dept-item-count { font-size: 0.8rem; }
+  .stock-badge-small { font-size: 0.75rem; padding: 0.3rem 0.5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Search box: filters items by name across all department sections below -->
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="GET" class="d-flex gap-2 flex-wrap">
+      <input type="text" name="search" class="form-control" style="max-width: 320px;"
+             placeholder="Search item name..." value="{{ search }}">
+      <button type="submit" class="btn btn-jsw">
+        <i class="fas fa-search me-1"></i> Search
+      </button>
+      {% if search %}
+      <a href="{{ url_for('department_stock.index') }}" class="btn btn-outline-secondary">
+        <i class="fas fa-times me-1"></i> Clear
+      </a>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+<!-- Company-wide current stock — quick reference, not department-split -->
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="fas fa-warehouse me-2"></i>Current Overall Stock (All Departments Combined)
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Stock Left</th>
+            <th>Unit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in current_stock %}
+          <tr class="{{ 'stock-low' if item.stock < 10 else 'stock-ok' }}">
+            <td><strong>{{ item.item_name }}</strong></td>
+            <td>
+              <span class="badge {{ 'bg-danger' if item.stock < 10 else 'bg-success' }}">
+                {{ item.stock }}
+              </span>
+            </td>
+            <td>{{ item.unit }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-center text-muted py-3">No items found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Department-wise current stock available -->
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="fas fa-building me-2"></i>Department-wise Current Stock (Available in Each Department)
+  </div>
+  <div class="card-body">
+    {% if not dept_current_stock %}
+      <p class="text-muted text-center py-4 mb-0">No matching data found.</p>
+    {% else %}
+    <div class="accordion" id="deptCurrentStockAccordion">
+      {% for dept_name, items in dept_current_stock.items() %}
+      {% set panel_id = 'deptCurrent' ~ loop.index %}
+      <div class="accordion-item">
+        <h2 class="accordion-header">
+          <button class="accordion-button dept-accordion-btn {{ '' if loop.first else 'collapsed' }}"
+                  type="button" data-bs-toggle="collapse" data-bs-target="#{{ panel_id }}">
+            <i class="fas fa-cubes me-2"></i>
+            {{ dept_name }}
+            <span class="badge bg-info ms-2 dept-item-count">{{ items|length }} item(s)</span>
+          </button>
+        </h2>
+        <div id="{{ panel_id }}" class="accordion-collapse collapse {{ 'show' if loop.first else '' }}"
+             data-bs-parent="#deptCurrentStockAccordion">
+          <div class="accordion-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Current Stock</th>
+                    <th>Issued Qty</th>
+                    <th>Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item_name, info in items.items() %}
+                  <tr class="{{ 'stock-low' if info.current < 10 else 'stock-ok' }}">
+                    <td>{{ item_name }}</td>
+                    <td>
+                      <span class="badge {{ 'bg-danger' if info.current < 10 else 'bg-success' }} stock-badge-small">
+                        {{ info.current }}
+                      </span>
+                    </td>
+                    <td>
+                      <span class="badge bg-primary stock-badge-small">
+                        {{ info.issued }}
+                      </span>
+                    </td>
+                    <td>{{ info.unit }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Department-wise issued quantity, one accordion panel per department -->
+<div class="card">
+  <div class="card-header">
+    <i class="fas fa-building me-2"></i>Department-wise Issued Stock
+  </div>
+  <div class="card-body">
+    {% if not dept_data %}
+      <p class="text-muted text-center py-4 mb-0">No matching data found.</p>
+    {% else %}
+    <div class="accordion" id="deptAccordion">
+      {% for dept_name, items in dept_data.items() %}
+      {% set panel_id = 'dept' ~ loop.index %}
+      <div class="accordion-item">
+        <h2 class="accordion-header">
+          <button class="accordion-button dept-accordion-btn {{ '' if loop.first else 'collapsed' }}"
+                  type="button" data-bs-toggle="collapse" data-bs-target="#{{ panel_id }}">
+            <i class="fas fa-users me-2"></i>
+            {{ dept_name }}
+            <span class="badge bg-secondary ms-2 dept-item-count">{{ items|length }} item(s)</span>
+          </button>
+        </h2>
+        <div id="{{ panel_id }}" class="accordion-collapse collapse {{ 'show' if loop.first else '' }}"
+             data-bs-parent="#deptAccordion">
+          <div class="accordion-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Total Qty Issued</th>
+                    <th>Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item_name, info in items.items() %}
+                  <tr>
+                    <td>{{ item_name }}</td>
+                    <td><span class="badge bg-primary">{{ info.qty }}</span></td>
+                    <td>{{ info.unit }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
