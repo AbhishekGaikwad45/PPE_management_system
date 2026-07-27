@@ -163,29 +163,154 @@ def delete(id):
 def ledger():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
-    conn = get_db(); c = conn.cursor()
+
+    conn = get_db()
+    c = conn.cursor()
+
     item_id = request.args.get('item_id')
-    c.execute("SELECT * FROM items ORDER BY item_name")
+
+    role = session.get("role")
+    department = session.get("department")
+    is_admin = role in ["Admin", "Super Admin"]
+
+    # ----------------------------
+    # Load Items
+    # ----------------------------
+    if is_admin:
+        c.execute("""
+            SELECT *
+            FROM items
+            ORDER BY item_name
+        """)
+    else:
+        c.execute("""
+            SELECT DISTINCT i.*
+            FROM items i
+            JOIN stock_receipts s
+                ON s.item_id = i.id
+            WHERE s.department = %s
+            ORDER BY i.item_name
+        """, (department,))
+
     items = fetchall(c)
-    ledger_data = []; selected_item = None
+
+    ledger_data = []
+    selected_item = None
+
+    # ----------------------------
+    # Load Ledger
+    # ----------------------------
     if item_id:
-        c.execute("SELECT * FROM items WHERE id=%s", (item_id,))
+
+        # Validate selected item
+        if is_admin:
+            c.execute(
+                "SELECT * FROM items WHERE id=%s",
+                (item_id,)
+            )
+        else:
+            c.execute("""
+                SELECT DISTINCT i.*
+                FROM items i
+                JOIN stock_receipts s
+                    ON s.item_id = i.id
+                WHERE i.id=%s
+                  AND s.department=%s
+            """, (item_id, department))
+
         selected_item = fetchone(c)
-        c.execute("SELECT receipt_date as txn_date, qty, 'Receipt' as type, grn_no as ref FROM stock_receipts WHERE item_id=%s", (item_id,))
-        receipts = fetchall(c)
-        c.execute("SELECT i.issue_date as txn_date, i.qty, 'Issue' as type, e.name as ref FROM issue_register i JOIN employees e ON i.employee_id=e.id WHERE i.item_id=%s", (item_id,))
-        issues = fetchall(c)
-        ledger_data = sorted(receipts + issues, key=lambda x: x['txn_date'])
-        running_balance = 0
-        for row in ledger_data:
-            if row['type'] == 'Receipt':
-                running_balance += row['qty']; row['balance'] = running_balance
-                row['in_qty'] = row['qty']; row['out_qty'] = ''
+
+        if selected_item:
+
+            # ----------------------------
+            # Receipts
+            # ----------------------------
+            if is_admin:
+                c.execute("""
+                    SELECT
+                        receipt_date AS txn_date,
+                        qty,
+                        'Receipt' AS type,
+                        grn_no AS ref
+                    FROM stock_receipts
+                    WHERE item_id=%s
+                """, (item_id,))
             else:
-                running_balance -= row['qty']; row['balance'] = running_balance
-                row['in_qty'] = ''; row['out_qty'] = row['qty']
+                c.execute("""
+                    SELECT
+                        receipt_date AS txn_date,
+                        qty,
+                        'Receipt' AS type,
+                        grn_no AS ref
+                    FROM stock_receipts
+                    WHERE item_id=%s
+                      AND department=%s
+                """, (item_id, department))
+
+            receipts = fetchall(c)
+
+            # ----------------------------
+            # Issues
+            # ----------------------------
+            if is_admin:
+                c.execute("""
+                    SELECT
+                        i.issue_date AS txn_date,
+                        i.qty,
+                        'Issue' AS type,
+                        e.name AS ref
+                    FROM issue_register i
+                    JOIN employees e
+                        ON i.employee_id = e.id
+                    WHERE i.item_id=%s
+                """, (item_id,))
+            else:
+                c.execute("""
+                    SELECT
+                        i.issue_date AS txn_date,
+                        i.qty,
+                        'Issue' AS type,
+                        e.name AS ref
+                    FROM issue_register i
+                    JOIN employees e
+                        ON i.employee_id = e.id
+                    WHERE i.item_id=%s
+                      AND i.department=%s
+                """, (item_id, department))
+
+            issues = fetchall(c)
+
+            # ----------------------------
+            # Merge & Balance
+            # ----------------------------
+            ledger_data = sorted(
+                receipts + issues,
+                key=lambda x: x["txn_date"]
+            )
+
+            running_balance = 0
+
+            for row in ledger_data:
+                if row["type"] == "Receipt":
+                    running_balance += row["qty"]
+                    row["in_qty"] = row["qty"]
+                    row["out_qty"] = ""
+                else:
+                    running_balance -= row["qty"]
+                    row["in_qty"] = ""
+                    row["out_qty"] = row["qty"]
+
+                row["balance"] = running_balance
+
     conn.close()
-    return render_template('ledger.html', items=items, ledger_data=ledger_data, selected_item=selected_item, item_id=item_id)
+
+    return render_template(
+        "ledger.html",
+        items=items,
+        ledger_data=ledger_data,
+        selected_item=selected_item,
+        item_id=item_id
+    )
 
 @stock_bp.route('/stock/download')
 def download():
@@ -200,18 +325,18 @@ def download():
     department = session.get("department")
     is_admin = role in ["Admin", "Super Admin"]
     query = """
-    SELECT r.receipt_date,
-           r.grn_no,
-           i.item_name,
-           i.item_code,
-           r.qty,
-           i.unit,
-           r.received_by,
-           r.remarks
-    FROM stock_receipts r
-    JOIN items i ON r.item_id = i.id
-    WHERE 1=1
-    """
+        SELECT r.receipt_date,
+            r.grn_no,
+            i.item_name,
+            i.item_code,
+            r.qty,
+            i.unit,
+            r.received_by,
+            r.remarks
+        FROM stock_receipts r
+        JOIN items i ON r.item_id = i.id
+        WHERE 1=1
+        """
 
     params = []
 
