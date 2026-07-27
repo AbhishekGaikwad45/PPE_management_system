@@ -12,29 +12,29 @@ PER_PAGE = 100
 COMBINE_GROUPS = {
     'Civil & Project': [
         'Civil', 'Civil/Project', 'Civil & Project', 'Civil and Project',
-        'Project', 'Projects'                      # ← ADDED 'Projects' (plural)
+        'Project', 'Projects','Civil & Project'                      # ← ADDED 'Projects' (plural)
     ],
     'Administration / HR Admin': [
         'Administration', 'HR/Admin', 'HR & Admin', 'HR and Admin', 'HR',
-        'Admin'                                     # ← ADDED 'Admin' (short form)
+        'Admin' ,'Administration / HR Admin'                                    # ← ADDED 'Admin' (short form)
     ],
     'IT / Information Technology': [
         'IT', 'Information Technology',
-        'I.T.', 'Information Tech'                  # ← ADDED common IT variants too, just in case
+        'I.T.', 'Information Tech'  ,'IT / Information Technology'                # ← ADDED common IT variants too, just in case
     ],
     # ← ADDED — Marine + Operations combined into one card
     'Marine / Operations': [
-        'Marine', 'Operations', 'Marine & Operations', 'Marine and Operations'
+        'Marine', 'Operations', 'Marine & Operations', 'Marine and Operations','Marine / Operations'
     ],
     # ← ADDED — Accounts + Finance & Accounts combined into one card
     'Accounts / Finance & Accounts': [
         'Accounts', 'Finance & Accounts', 'Finance and Accounts',
-        'Finance', 'F&A', 'Finance & Account'
+        'Finance', 'F&A', 'Finance & Account','Accounts / Finance & Accounts'
     ],
     # ← ADDED — Commercial + Commercial & Stores combined into one card
     'Commercial / Commercial & Stores': [
         'Commercial', 'Commercial & Stores', 'Commercial and Stores',
-        'Commercial & Store', 'Commercial and Store'
+        'Commercial & Store', 'Commercial and Store','Commercial / Commercial & Stores'
     ],
 }
 # reverse lookup: UPPER(raw name) -> display name
@@ -153,13 +153,23 @@ def index():
         c.execute("SELECT name FROM departments WHERE name=%s", (dept,))
     raw_departments = fetchall(c)
 
-    seen_raw = set()
+    seen_display = {}
     departments = []
     for row in raw_departments:
         raw_name = row['name']
-        if raw_name not in seen_raw:
-            seen_raw.add(raw_name)
-            departments.append({'name': raw_name})
+        disp = _display_dept_name(raw_name)
+        if disp not in seen_display:
+            seen_display[disp] = raw_name
+            departments.append({'name': raw_name, 'display': disp})
+    departments.sort(key=lambda d: d['display'])
+
+    seen_display = set()
+    departments = []
+    for row in raw_departments:
+        disp = _display_dept_name(row['name'])
+        if disp not in seen_display:
+            seen_display.add(disp)
+            departments.append({'name': disp})
     departments.sort(key=lambda d: d['name'])
 
     # Contractors
