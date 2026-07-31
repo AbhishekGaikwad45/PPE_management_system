@@ -211,29 +211,51 @@ def add():
 @users_admin_bp.route('/edit/<int:user_id>', methods=['POST'])
 @permission_required('can_edit')
 def edit(user_id):
+    username = request.form.get('username', '').strip()
     full_name = request.form.get('full_name', '').strip()
     role = request.form.get('role', '').strip()
     department = request.form.get('department', '').strip() or None
     email = request.form.get('email', '').strip() or None
     password = request.form.get('password', '').strip()  # optional — blank keeps current
 
+    if not username:
+        flash('Username cannot be empty.', 'danger')
+        return redirect(url_for('users_admin.index'))
+
     conn = get_db()
     c = conn.cursor()
     try:
+        # Prevent duplicate usernames (case-insensitive), excluding this user itself
+        c.execute("SELECT id FROM users WHERE LOWER(username)=LOWER(%s) AND id != %s", (username, user_id))
+        if fetchone(c):
+            flash(f"Username '{username}' is already taken by another user.", 'danger')
+            conn.close()
+            return redirect(url_for('users_admin.index'))
+
+        # If this user is currently logged in and renames themselves,
+        # keep their session in sync so they don't get logged out/mismatched.
+        c.execute("SELECT username FROM users WHERE id=%s", (user_id,))
+        old = fetchone(c)
+        old_username = old['username'] if old else None
+
         if password:
             c.execute(
-                "UPDATE users SET full_name=%s, role=%s, department=%s, email=%s, password=%s WHERE id=%s",
-                (full_name, role, department, email, password, user_id)
+                "UPDATE users SET username=%s, full_name=%s, role=%s, department=%s, email=%s, password=%s WHERE id=%s",
+                (username, full_name, role, department, email, password, user_id)
             )
         else:
             c.execute(
-                "UPDATE users SET full_name=%s, role=%s, department=%s, email=%s WHERE id=%s",
-                (full_name, role, department, email, user_id)
+                "UPDATE users SET username=%s, full_name=%s, role=%s, department=%s, email=%s WHERE id=%s",
+                (username, full_name, role, department, email, user_id)
             )
         conn.commit()
+
+        if old_username and session.get('user') == old_username:
+            session['user'] = username
+
         flash('User updated successfully.', 'success')
         log_action('edit', 'users', user_id,
-                    f"Updated user id {user_id} (name: {full_name}, role: {role}"
+                    f"Updated user id {user_id} (username: {username}, name: {full_name}, role: {role}"
                     + (", password changed)" if password else ")"))
     except Exception as e:
         conn.rollback()

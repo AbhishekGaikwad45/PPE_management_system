@@ -72,54 +72,89 @@ def index():
         dept_data[display_dept].setdefault(item_name, {'qty': 0, 'unit': unit})
         dept_data[display_dept][item_name]['qty'] += qty
 
-    # ========== STEP 4: Get current stock per item per department ==========
-    # This section calculates available stock for each department.
-    # If you have a dedicated department_stock table, use that instead.
-    # For now, we'll show all items with their current overall stock,
-    # and calculate what's left for each department.
+# ========== STEP 4: Get REAL current stock per item per department ==========
+    # A department's own stock balance is receipts - issues + returns for
+    # THAT department specifically — computed the exact same way
+    # find_issue_department() in issues.py decides whether a department has
+    # enough stock to issue from. It is NOT items.stock (that's the
+    # company-wide total across every department combined, and must never
+    # be shown here or it leaks other departments' stock into this view).
+    #
+    # Note: we group by issue_register.department / stock_receipts.department
+    # directly — NOT by the employee's own department — because an issue
+    # may have actually been drawn from a sibling department's stock via the
+    # COMBINE_GROUPS fallback in find_issue_department(). issue_register.department
+    # always records which department's ledger was actually decremented.
 
-    c.execute("SELECT id, item_name, stock, unit FROM items ORDER BY item_name")
+    c.execute("SELECT id, item_name, unit FROM items ORDER BY item_name")
     all_items = fetchall(c)
-    
-    # Create a mapping of item_id -> item_name, stock, unit
     item_info = {row['id']: row for row in all_items}
 
-    # Get issued quantities per item per department (in detail)
     c.execute("""
-        SELECT e.department AS raw_department, i.id AS item_id, i.item_name, 
-               i.unit, SUM(ir.qty) AS total_issued
-        FROM issue_register ir
-        JOIN employees e ON ir.employee_id = e.id
-        JOIN items i ON ir.item_id = i.id
-        GROUP BY e.department, i.id, i.item_name, i.unit
+        SELECT department AS raw_department, item_id, COALESCE(SUM(qty),0) AS total
+        FROM stock_receipts
+        GROUP BY department, item_id
     """)
-    dept_issued_detail = fetchall(c)
+    receipts_rows = fetchall(c)
 
-    # dept_current_stock structure:
-    # { "Marine / Operations": { "Dust Mask": {"current": 8, "issued": 2, "unit": "Nos"}, ... }, ... }
-    dept_current_stock = defaultdict(lambda: defaultdict(dict))
-    
-    for row in dept_issued_detail:
-        raw_dept = row['raw_department']
-        
-        # Skip rows belonging to a department this user isn't allowed to see
-        if allowed_variants is not None and (raw_dept or '').lower() not in allowed_variants:
+    c.execute("""
+        SELECT department AS raw_department, item_id, COALESCE(SUM(qty),0) AS total
+        FROM issue_register
+        GROUP BY department, item_id
+    """)
+    issued_rows = fetchall(c)
+
+    c.execute("""
+        SELECT i.department AS raw_department, r.item_id, COALESCE(SUM(r.qty_no),0) AS total
+        FROM return_register r
+        JOIN issue_register i ON i.id = r.issue_id
+        GROUP BY i.department, r.item_id
+    """)
+    returned_rows = fetchall(c)
+
+    # balances[(raw_department, item_id)] = running total
+    balances = defaultdict(int)
+    for row in receipts_rows:
+        balances[(row['raw_department'], row['item_id'])] += row['total']
+    for row in issued_rows:
+        balances[(row['raw_department'], row['item_id'])] -= row['total']
+    for row in returned_rows:
+        balances[(row['raw_department'], row['item_id'])] += row['total']
+
+    # Total issued (for the "Issued Qty" column) keyed the same way
+    issued_totals = {
+        (row['raw_department'], row['item_id']): row['total'] for row in issued_rows
+    }
+
+    dept_current_stock = defaultdict(dict)
+    for (raw_dept, item_id), balance in balances.items():
+        if not raw_dept:
             continue
-        
+
+        # Skip rows belonging to a department this user isn't allowed to see
+        if allowed_variants is not None and raw_dept.lower() not in allowed_variants:
+            continue
+
+        item = item_info.get(item_id)
+        if not item:
+            continue
+
         display_dept = _display_dept_name(raw_dept)
-        item_id = row['item_id']
-        item_name = row['item_name']
-        unit = row['unit']
-        total_issued = row['total_issued'] or 0
-        
-        # Get overall current stock from items table
-        overall_current = item_info.get(item_id, {}).get('stock', 0)
-        
-        dept_current_stock[display_dept][item_name] = {
-            'current': overall_current,
-            'issued': total_issued,
-            'unit': unit
-        }
+        item_name = item['item_name']
+        unit = item['unit']
+        total_issued = issued_totals.get((raw_dept, item_id), 0)
+
+        existing = dept_current_stock[display_dept].get(item_name)
+        if existing:
+            # Combined-group departments (e.g. Marine + Operations) merge into one row
+            existing['current'] += balance
+            existing['issued'] += total_issued
+        else:
+            dept_current_stock[display_dept][item_name] = {
+                'current': balance,
+                'issued': total_issued,
+                'unit': unit
+            }
 
     # ========== STEP 5: Apply search filter if provided ==========
     if search:

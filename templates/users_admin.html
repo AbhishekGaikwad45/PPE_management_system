@@ -18,7 +18,7 @@
     </a>
     {% endif %}
     <form action="{{ url_for('employee_sync.sync_employees') }}" method="POST" class="d-inline"
-          onsubmit="return confirm('Sync employees from SQL Server HR database now?');">
+      onsubmit="return confirm('Sync employees from SQL Server HR database now?');">
       <button type="submit" class="btn btn-outline-primary me-2">
         <i class="fas fa-sync me-1"></i> Sync From Mantra
       </button>
@@ -56,31 +56,34 @@
           <td>{{ u.department or 'All (Admin access)' }}</td>
           <td>
             {% if u.role in ['Admin', 'Super Admin'] %}
-              <span class="badge bg-success">Create</span>
-              <span class="badge bg-success">Edit</span>
-              <span class="badge bg-success">Delete</span>
+            <span class="badge bg-success">Create</span>
+            <span class="badge bg-success">Edit</span>
+            <span class="badge bg-success">Delete</span>
             {% else %}
-              {# department-specific permission if the user has a department, else legacy global perms #}
-              {% if u.department %}
-                {% set p = dept_perms.get(u.department, {}).get(u.role, {}) %}
-              {% else %}
-                {% set p = perms.get(u.role, {}) %}
-              {% endif %}
-              <span class="badge {% if p.get('can_create') %}bg-success{% else %}bg-light text-muted{% endif %}">Create</span>
-              <span class="badge {% if p.get('can_edit') %}bg-success{% else %}bg-light text-muted{% endif %}">Edit</span>
-              <span class="badge {% if p.get('can_delete') %}bg-success{% else %}bg-light text-muted{% endif %}">Delete</span>
-              {% if u.department %}
-                <div><small class="text-muted">({{ u.department }})</small></div>
-              {% endif %}
+            {# department-specific permission if the user has a department, else legacy global perms #}
+            {% if u.department %}
+            {% set p = dept_perms.get(u.department, {}).get(u.role, {}) %}
+            {% else %}
+            {% set p = perms.get(u.role, {}) %}
+            {% endif %}
+            <span
+              class="badge {% if p.get('can_create') %}bg-success{% else %}bg-light text-muted{% endif %}">Create</span>
+            <span class="badge {% if p.get('can_edit') %}bg-success{% else %}bg-light text-muted{% endif %}">Edit</span>
+            <span
+              class="badge {% if p.get('can_delete') %}bg-success{% else %}bg-light text-muted{% endif %}">Delete</span>
+            {% if u.department %}
+            <div><small class="text-muted">({{ u.department }})</small></div>
+            {% endif %}
             {% endif %}
           </td>
           <td>{{ u.created_at }}</td>
           <td>
-            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editUserModal{{ u.id }}">
+            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+              data-bs-target="#editUserModal{{ u.id }}">
               <i class="fas fa-edit"></i>
             </button>
             <form method="POST" action="{{ url_for('users_admin.delete', user_id=u.id) }}" class="d-inline"
-                  onsubmit="return confirm('Delete user {{ u.username }}? This cannot be undone.');">
+              onsubmit="return confirm('Delete user {{ u.username }}? This cannot be undone.');">
               <button type="submit" class="btn btn-sm btn-outline-danger">
                 <i class="fas fa-trash"></i>
               </button>
@@ -99,19 +102,24 @@
                 </div>
                 <div class="modal-body">
                   <div class="mb-3">
+                    <label class="form-label">Username</label>
+                    <input type="text" name="username" class="form-control" value="{{ u.username or '' }}" required>
+                  </div>
+                  <div class="mb-3">
                     <label class="form-label">Full Name</label>
                     <input type="text" name="full_name" class="form-control" value="{{ u.full_name or '' }}">
                   </div>
                   <div class="mb-3">
                     <label class="form-label">Email</label>
-                    <input type="email" name="email" class="form-control" value="{{ u.email or '' }}" placeholder="user@example.com">
+                    <input type="email" name="email" class="form-control" value="{{ u.email or '' }}"
+                      placeholder="user@example.com">
                     <div class="form-text">Used to send the password-reset OTP.</div>
                   </div>
                   <div class="mb-3">
                     <label class="form-label">Role</label>
                     <select name="role" class="form-select" required>
                       {% for r in roles %}
-                      <option value="{{ r }}" {% if r == u.role %}selected{% endif %}>{{ r }}</option>
+                      <option value="{{ r }}" {% if r==u.role %}selected{% endif %}>{{ r }}</option>
                       {% endfor %}
                     </select>
                   </div>
@@ -120,7 +128,7 @@
                     <select name="department" class="form-select">
                       <option value="">All (No restriction)</option>
                       {% for d in departments %}
-                      <option value="{{ d }}" {% if d == u.department %}selected{% endif %}>{{ d }}</option>
+                      <option value="{{ d }}" {% if d==u.department %}selected{% endif %}>{{ d }}</option>
                       {% endfor %}
                     </select>
                   </div>
@@ -138,7 +146,9 @@
           </div>
         </div>
         {% else %}
-        <tr><td colspan="9" class="text-center text-muted py-4">No users found.</td></tr>
+        <tr>
+          <td colspan="9" class="text-center text-muted py-4">No users found.</td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>

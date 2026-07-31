@@ -32,7 +32,8 @@
   </div>
 </div>
 
-<!-- Company-wide current stock — quick reference, not department-split -->
+{% if is_admin %}
+<!-- Company-wide current stock — Admin/Super Admin only; department users must never see other departments' totals -->
 <div class="card mb-4">
   <div class="card-header">
     <i class="fas fa-warehouse me-2"></i>Current Overall Stock (All Departments Combined)
@@ -66,6 +67,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 
 <!-- Department-wise current stock available -->
 <div class="card mb-4">

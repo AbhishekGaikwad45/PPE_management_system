@@ -81,6 +81,67 @@ def index():
                             can_create=can_create, can_edit=can_edit, can_delete=can_delete)
 
 
+def find_issue_department(cur, item_id, employee_department, qty):
+    """
+    Return the department from which stock should be issued.
+    Loops through the combined-department group for the employee's
+    department and returns the first one whose ledger balance
+    (receipts - issues + returns) can cover `qty`. Returns None if
+    no department in the group has enough stock.
+    """
+
+    from modules.employees import COMBINE_GROUPS, _display_dept_name
+
+    display_name = _display_dept_name(employee_department)
+
+    departments = COMBINE_GROUPS.get(display_name, [employee_department])
+
+    for dept in departments:
+
+        cur.execute("""
+            SELECT
+                COALESCE((
+                    SELECT SUM(qty)
+                    FROM stock_receipts
+                    WHERE item_id=%s
+                      AND LOWER(department)=LOWER(%s)
+                ),0)
+
+                -
+
+                COALESCE((
+                    SELECT SUM(qty)
+                    FROM issue_register
+                    WHERE item_id=%s
+                      AND LOWER(department)=LOWER(%s)
+                ),0)
+
+                +
+
+                COALESCE((
+                    SELECT SUM(r.qty_no)
+                    FROM return_register r
+                    JOIN issue_register i
+                      ON i.id = r.issue_id
+                    WHERE r.item_id=%s
+                      AND LOWER(i.department)=LOWER(%s)
+                ),0)
+
+                AS balance
+        """, (
+            item_id, dept,
+            item_id, dept,
+            item_id, dept
+        ))
+
+        row = fetchone(cur)
+
+        if row and row["balance"] >= qty:
+            return dept
+
+    return None
+
+
 @issues_bp.route('/issues/add', methods=['POST'])
 def add():
     if 'user' not in session:
@@ -129,23 +190,72 @@ def add():
                 return redirect(url_for("issues.index"))
 
         for emp_id in employee_ids:
+
             c.execute("SELECT department FROM employees WHERE id=%s", (emp_id,))
             emp_row = fetchone(c)
-            emp_department = emp_row["department"] if emp_row else dept
+
+            employee_department = emp_row["department"] if emp_row else dept
 
             for item_id in item_ids:
+
+                # ← FIXED — get_department_available_stock() was never
+                # defined anywhere in this file, so every call here raised
+                # a NameError, was swallowed by the except block below, and
+                # silently rolled back the whole issue. Replaced with the
+                # existing find_issue_department() helper, which already
+                # loops through the employee's COMBINE_GROUPS departments
+                # and returns the first one with enough ledger balance.
+                issue_department = find_issue_department(
+                    c, item_id, employee_department, qty
+                )
+
+                if not issue_department:
+                    conn.rollback()
+                    flash(
+                        f"Insufficient stock in '{employee_department}' "
+                        f"(or related departments) for this item.",
+                        "danger"
+                    )
+                    return redirect(url_for("issues.index"))
+
                 c.execute("""
                     INSERT INTO issue_register
-                    (issue_date, employee_id, item_id, qty, issued_by,
-                     returnable, return_due_date, status, remarks, department)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """, (issue_date, emp_id, item_id, qty, issued_by,
-                      returnable, return_due, 'Issued', remarks, emp_department))
+                    (
+                        issue_date,
+                        employee_id,
+                        item_id,
+                        qty,
+                        issued_by,
+                        returnable,
+                        return_due_date,
+                        status,
+                        remarks,
+                        department
+                    )
+                    VALUES
+                    (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    issue_date,
+                    emp_id,
+                    item_id,
+                    qty,
+                    issued_by,
+                    returnable,
+                    return_due,
+                    "Issued",
+                    remarks,
+                    issue_department
+                ))
 
-                c.execute("UPDATE items SET stock = stock - %s WHERE id=%s", (qty, item_id))
+                # Global stock
+                c.execute("""
+                    UPDATE items
+                    SET stock = stock - %s
+                    WHERE id=%s
+                """, (qty, item_id))
 
-        conn.commit()
-        flash("PPE/Equipment issued successfully.", "success")
+                conn.commit()
+                flash("PPE/Equipment issued successfully.", "success")
 
     except Exception as e:
         conn.rollback()
