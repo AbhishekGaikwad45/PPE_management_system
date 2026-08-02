@@ -6,7 +6,7 @@
 <!-- KPI Cards -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-2">
-    <div class="kpi-card kpi-pop-wrap{% if is_admin %} kpi-hoverable{% endif %}">
+    <div class="kpi-card kpi-pop-wrap kpi-pop-left{% if is_admin %} kpi-hoverable{% endif %}">
       <div class="kpi-value">{{ total_employees }}</div>
       <div class="kpi-label"><i class="fas fa-users me-1"></i>Employees</div>
       {% if is_admin %}
@@ -270,6 +270,14 @@
     box-shadow: 0 20px 45px rgba(37, 99, 168, .22);
   }
 
+  /* Cards with popovers must NOT use transform on hover — transform creates a
+     new stacking context that traps the absolutely-positioned .kpi-pop-panel
+     inside the card boundary, preventing it from appearing above the sidebar */
+  .kpi-card.kpi-pop-wrap:hover {
+    transform: none !important;
+    box-shadow: 0 20px 45px rgba(37, 99, 168, .28), 0 0 0 2px rgba(37, 99, 235, .12);
+  }
+
   .kpi-card::before {
     content: '';
     position: absolute;
@@ -306,12 +314,19 @@
 
 
 
+  /* .main-content z-index fix is now handled in base.html (position: relative; z-index: 1001)
+     The .popover-active JS class is kept for legacy JS compatibility */
+  .main-content.popover-active {
+    z-index: 1050 !important;
+    position: relative !important;
+  }
+
   .kpi-pop-wrap {
     position: relative;
   }
 
   .kpi-card.kpi-pop-wrap {
-    overflow: visible;
+    overflow: visible !important;
   }
 
   .kpi-pop-wrap.kpi-hoverable {
@@ -319,23 +334,39 @@
   }
 
   .kpi-pop-wrap.kpi-hoverable:hover {
-    z-index: 1000;
+    z-index: 1100 !important;
   }
 
+  /* Left-aligned popover for 1st KPI card */
+  .kpi-pop-wrap.kpi-pop-left .kpi-pop-panel {
+    left: 0 !important;
+    transform: translateY(6px) !important;
+  }
+
+  .kpi-pop-wrap.kpi-pop-left .kpi-pop-panel::before {
+    left: 20px !important;
+    transform: rotate(45deg) !important;
+  }
+
+  .kpi-pop-wrap.kpi-pop-left.kpi-hoverable:hover .kpi-pop-panel {
+    transform: translateY(0) !important;
+  }
+
+  /* Right-aligned popover for last KPI card */
   .kpi-pop-wrap.kpi-pop-right .kpi-pop-panel {
-    left: auto;
-    right: 0;
-    transform: translateY(6px);
+    left: auto !important;
+    right: 0 !important;
+    transform: translateY(6px) !important;
   }
 
   .kpi-pop-wrap.kpi-pop-right .kpi-pop-panel::before {
-    left: auto;
-    right: 20px;
-    transform: rotate(45deg);
+    left: auto !important;
+    right: 20px !important;
+    transform: rotate(45deg) !important;
   }
 
   .kpi-pop-wrap.kpi-pop-right.kpi-hoverable:hover .kpi-pop-panel {
-    transform: translateY(0);
+    transform: translateY(0) !important;
   }
 
   .kpi-pop-panel {
@@ -345,14 +376,15 @@
     transform: translateX(-50%) translateY(6px);
     width: 260px;
     max-width: 90vw;
-    background: #fff;
-    border-radius: 10px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 15px 35px rgba(15, 23, 42, 0.22);
+    border: 1px solid rgba(226, 232, 240, 0.9);
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
     transition: opacity .18s ease, transform .18s ease;
-    z-index: 50;
+    z-index: 2000 !important;
     overflow: hidden;
     text-align: left;
   }
@@ -365,7 +397,10 @@
     transform: translateX(-50%) rotate(45deg);
     width: 12px;
     height: 12px;
-    background: #1A3A5C;
+    background: #eff6ff;
+    border-left: 1px solid #dbeafe;
+    border-top: 1px solid #dbeafe;
+    z-index: 1;
   }
 
   .kpi-pop-wrap.kpi-hoverable:hover .kpi-pop-panel {
@@ -375,19 +410,24 @@
     transform: translateX(-50%) translateY(0);
   }
 
+  /* Lightweight Popover Header */
   .kpi-pop-header {
-    background: #1A3A5C;
-    color: #fff;
-    font-size: .78rem;
-    font-weight: 600;
-    letter-spacing: .02em;
-    padding: 9px 14px;
+    background: #eff6ff;
+    color: #1e40af;
+    border-bottom: 1px solid #dbeafe;
+    font-size: .8rem;
+    font-weight: 700;
+    letter-spacing: .01em;
+    padding: 10px 14px;
+    position: relative;
+    z-index: 2;
   }
 
   .kpi-pop-body {
     max-height: 240px;
     overflow-y: auto;
     padding: 4px 0;
+    background: #ffffff;
   }
 
   .kpi-pop-row {
@@ -397,13 +437,15 @@
     gap: 10px;
     padding: 7px 14px;
     font-size: .82rem;
-    color: #2d3748;
-    border-bottom: 1px solid #f0f2f5;
+    color: #334155;
+    border-bottom: 1px solid #f1f5f9;
+    transition: all 0.15s;
   }
 
   .kpi-pop-row:hover {
-    background: #eff6ff;
-    padding-left: 20px;
+    background: #f8fafc;
+    padding-left: 18px;
+    color: #2563eb;
   }
 
   .kpi-pop-row:last-child {
@@ -411,24 +453,25 @@
   }
 
   .kpi-pop-name {
-    color: #4a5568;
+    color: #475569;
+    font-weight: 500;
   }
 
   .kpi-pop-count {
     font-weight: 700;
-    color: #1A3A5C;
-    background: #eef3f8;
+    color: #2563eb;
+    background: #eff6ff;
     border-radius: 10px;
-    padding: 1px 9px;
-    min-width: 30px;
+    padding: 2px 10px;
+    min-width: 28px;
     text-align: center;
     flex-shrink: 0;
   }
 
   .kpi-pop-empty {
-    padding: 12px 14px;
+    padding: 14px;
     font-size: .82rem;
-    color: #a0aec0;
+    color: #94a3b8;
     text-align: center;
   }
 
@@ -675,5 +718,18 @@
       }
     });
   }
+
+  // Elevate main-content stacking context above sidebar on hover
+  document.addEventListener("DOMContentLoaded", function() {
+    const mainContent = document.querySelector('.main-content');
+    document.querySelectorAll('.kpi-pop-wrap').forEach(wrap => {
+      wrap.addEventListener('mouseenter', () => {
+        if (mainContent) mainContent.classList.add('popover-active');
+      });
+      wrap.addEventListener('mouseleave', () => {
+        if (mainContent) mainContent.classList.remove('popover-active');
+      });
+    });
+  });
 </script>
 {% endblock %}

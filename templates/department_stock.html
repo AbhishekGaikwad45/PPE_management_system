@@ -4,120 +4,335 @@
 
 {% block extra_css %}
 <style>
-  .stock-low { background-color: #fdecea !important; }   /* low stock highlight */
-  .stock-ok  { background-color: #eafaf1 !important; }   /* healthy stock highlight */
-  .dept-accordion-btn { font-weight: 600; }
-  .dept-item-count { font-size: 0.8rem; }
-  .stock-badge-small { font-size: 0.75rem; padding: 0.3rem 0.5rem; }
+  /* ── Page background ───────────────────────────────── */
+  .dept-stock-page { animation: fadeSlideUp .45s cubic-bezier(.16,1,.3,1) both; }
+  @keyframes fadeSlideUp {
+    from { opacity:0; transform:translateY(14px); }
+    to   { opacity:1; transform:translateY(0);    }
+  }
+
+  /* ── Search bar ─────────────────────────────────────── */
+  .search-panel {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(26,79,140,.07);
+    border: 1px solid #e8eef7;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .search-panel .search-icon-wrap {
+    display: flex; align-items: center; gap: 10px;
+    flex: 1; min-width: 260px;
+    background: #f4f7fc;
+    border: 1px solid #dce6f4;
+    border-radius: 10px;
+    padding: 0 14px;
+  }
+  .search-panel .search-icon-wrap i { color: #1a5ca8; font-size: 14px; }
+  .search-panel .search-icon-wrap input {
+    border: none; background: transparent;
+    padding: 10px 0; font-size: 14px; color: #334155;
+    width: 100%; outline: none;
+  }
+  .search-panel .search-icon-wrap input::placeholder { color: #94a3b8; }
+  .btn-search {
+    background: linear-gradient(135deg,#1a4f8c,#1a5ca8);
+    color: #fff; border: none; border-radius: 10px;
+    padding: 10px 22px; font-weight: 600; font-size: 14px;
+    transition: all .22s; box-shadow: 0 4px 12px rgba(26,79,140,.22);
+  }
+  .btn-search:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(26,79,140,.3); color:#fff; }
+  .btn-clear {
+    border: 1px solid #cbd5e1; border-radius: 10px;
+    padding: 10px 18px; font-size: 14px; color: #64748b;
+    background: #fff; transition: all .2s;
+  }
+  .btn-clear:hover { background: #f1f5f9; color: #334155; }
+
+  /* ── Section headings ────────────────────────────────── */
+  .section-heading {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 16px;
+  }
+  .section-heading .icon-box {
+    width: 42px; height: 42px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .section-heading .icon-box.blue  { background: #eff6ff; color: #2563eb; }
+  .section-heading .icon-box.teal  { background: #f0fdf4; color: #059669; }
+  .section-heading .icon-box.amber { background: #fffbeb; color: #d97706; }
+  .section-heading h5 {
+    margin: 0; font-weight: 700; font-size: 16px; color: #1e3a5f;
+  }
+  .section-heading small { color: #64748b; font-size: 12px; }
+
+  /* ── Premium panel card ─────────────────────────────── */
+  .premium-panel {
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: 0 4px 24px rgba(26,79,140,.07);
+    border: 1px solid #e8eef7;
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+  .premium-panel-header {
+    background: linear-gradient(135deg,#1a4f8c 0%,#1e6bbf 100%);
+    padding: 16px 24px;
+    display: flex; align-items: center; gap: 10px;
+    color: #fff;
+  }
+  .premium-panel-header i { font-size: 16px; opacity: .85; }
+  .premium-panel-header span { font-weight: 700; font-size: 15px; letter-spacing: .2px; }
+  .premium-panel-body { padding: 20px 24px; }
+
+  /* ── Overall stock table ─────────────────────────────── */
+  .stock-table { width:100%; border-collapse:separate; border-spacing:0; }
+  .stock-table thead tr th {
+    background: #f4f7fc; color: #334155;
+    font-size: 12px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .6px; padding: 12px 16px; border-bottom: 2px solid #e2e8f0;
+  }
+  .stock-table thead tr th:first-child { border-radius: 10px 0 0 0; }
+  .stock-table thead tr th:last-child  { border-radius: 0 10px 0 0; }
+  .stock-table tbody tr {
+    border-bottom: 1px solid #f1f5f9;
+    transition: background .18s, transform .18s;
+  }
+  .stock-table tbody tr:hover { background: #f8faff !important; }
+  .stock-table tbody tr td { padding: 11px 16px; font-size: 13.5px; color: #334155; }
+  .stock-table tbody tr:last-child td { border-bottom: none; }
+
+  /* row highlights */
+  .row-low  { background: #fff5f5 !important; }
+  .row-ok   { background: #f0fdf4 !important; }
+
+  /* ── Stock badge pill ────────────────────────────────── */
+  .qty-pill {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 40px; padding: 4px 12px;
+    border-radius: 20px; font-weight: 700; font-size: 13px;
+  }
+  .qty-pill.danger { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+  .qty-pill.success{ background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+  .qty-pill.primary{ background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+  .qty-pill.amber  { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+
+  /* ── Accordion ───────────────────────────────────────── */
+  .dept-accordion { display: flex; flex-direction: column; gap: 10px; }
+  .dept-acc-item {
+    border: 1px solid #e8eef7;
+    border-radius: 14px;
+    overflow: hidden;
+    transition: box-shadow .22s;
+  }
+  .dept-acc-item:hover { box-shadow: 0 6px 20px rgba(26,79,140,.09); }
+
+  .dept-acc-btn {
+    width: 100%; background: #f8fafd;
+    border: none; padding: 15px 20px;
+    display: flex; align-items: center; gap: 12px;
+    cursor: pointer; transition: background .18s;
+    text-align: left;
+  }
+  .dept-acc-btn:hover { background: #eff6ff; }
+  .dept-acc-btn.open  { background: #eff6ff; }
+
+  .dept-acc-btn .dept-icon {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: linear-gradient(135deg,#1a4f8c,#1e6bbf);
+    color: #fff; display: flex; align-items: center;
+    justify-content: center; font-size: 14px; flex-shrink: 0;
+  }
+  .dept-acc-btn .dept-name {
+    flex: 1; font-weight: 700; font-size: 14px; color: #1e3a5f;
+  }
+  .dept-acc-btn .dept-badge {
+    background: #eff6ff; color: #2563eb;
+    border: 1px solid #bfdbfe;
+    border-radius: 20px; font-size: 11px; font-weight: 700;
+    padding: 3px 11px;
+  }
+  .dept-acc-btn .dept-chevron {
+    color: #94a3b8; font-size: 12px;
+    transition: transform .25s ease;
+  }
+  .dept-acc-btn.open .dept-chevron { transform: rotate(180deg); }
+
+  .dept-acc-body {
+    display: none;
+    border-top: 1px solid #e8eef7;
+    background: #fff;
+  }
+  .dept-acc-body.show { display: block; }
+
+  /* ── Empty state ─────────────────────────────────────── */
+  .empty-state {
+    text-align: center; padding: 52px 20px;
+    color: #94a3b8;
+  }
+  .empty-state i { font-size: 44px; margin-bottom: 12px; opacity: .35; }
+  .empty-state p { font-size: 14px; margin: 0; }
 </style>
 {% endblock %}
 
 {% block content %}
+<div class="dept-stock-page">
 
-<!-- Search box: filters items by name across all department sections below -->
-<div class="card mb-3">
-  <div class="card-body">
-    <form method="GET" class="d-flex gap-2 flex-wrap">
-      <input type="text" name="search" class="form-control" style="max-width: 320px;"
-             placeholder="Search item name..." value="{{ search }}">
-      <button type="submit" class="btn btn-jsw">
+  <!-- ── Search Bar ── -->
+  <div class="search-panel">
+    <form method="GET" class="d-flex align-items-center gap-3 flex-wrap w-100">
+      <div class="search-icon-wrap">
+        <i class="fas fa-search"></i>
+        <input type="text" name="search"
+               placeholder="Search item name across all departments..."
+               value="{{ search }}">
+      </div>
+      <button type="submit" class="btn-search">
         <i class="fas fa-search me-1"></i> Search
       </button>
       {% if search %}
-      <a href="{{ url_for('department_stock.index') }}" class="btn btn-outline-secondary">
+      <a href="{{ url_for('department_stock.index') }}" class="btn-clear">
         <i class="fas fa-times me-1"></i> Clear
       </a>
       {% endif %}
     </form>
   </div>
-</div>
 
-{% if is_admin %}
-<!-- Company-wide current stock — Admin/Super Admin only; department users must never see other departments' totals -->
-<div class="card mb-4">
-  <div class="card-header">
-    <i class="fas fa-warehouse me-2"></i>Current Overall Stock (All Departments Combined)
-  </div>
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-hover mb-0">
-        <thead>
-          <tr>
-            <th>Item</th>
-            <th>Stock Left</th>
-            <th>Unit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in current_stock %}
-          <tr class="{{ 'stock-low' if item.stock < 10 else 'stock-ok' }}">
-            <td><strong>{{ item.item_name }}</strong></td>
-            <td>
-              <span class="badge {{ 'bg-danger' if item.stock < 10 else 'bg-success' }}">
-                {{ item.stock }}
-              </span>
-            </td>
-            <td>{{ item.unit }}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="3" class="text-center text-muted py-3">No items found.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+  <!-- ── Admin: Overall Stock Table ── -->
+  {% if is_admin %}
+  <div class="premium-panel">
+    <div class="premium-panel-header">
+      <i class="fas fa-warehouse"></i>
+      <span>Overall Stock — All Departments Combined</span>
+    </div>
+    <div class="premium-panel-body">
+      <div class="section-heading">
+        <div class="icon-box blue"><i class="fas fa-boxes"></i></div>
+        <div>
+          <h5>Current Inventory Totals</h5>
+          <small>Real-time stock levels across all departments</small>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="stock-table">
+          <thead>
+            <tr>
+              <th><i class="fas fa-tag me-1 opacity-50"></i>Item Name</th>
+              <th><i class="fas fa-cubes me-1 opacity-50"></i>Stock Left</th>
+              <th><i class="fas fa-ruler me-1 opacity-50"></i>Unit</th>
+              <th><i class="fas fa-circle me-1 opacity-50"></i>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in current_stock %}
+            <tr class="{{ 'row-low' if item.stock < 10 else 'row-ok' }}">
+              <td><strong>{{ item.item_name }}</strong></td>
+              <td>
+                <span class="qty-pill {{ 'danger' if item.stock < 10 else 'success' }}">
+                  {{ item.stock }}
+                </span>
+              </td>
+              <td><span style="color:#64748b;">{{ item.unit }}</span></td>
+              <td>
+                {% if item.stock < 10 %}
+                  <span style="font-size:12px;font-weight:600;color:#dc2626;">
+                    <i class="fas fa-exclamation-triangle me-1"></i>Low Stock
+                  </span>
+                {% else %}
+                  <span style="font-size:12px;font-weight:600;color:#16a34a;">
+                    <i class="fas fa-check-circle me-1"></i>Healthy
+                  </span>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4">
+                <div class="empty-state">
+                  <i class="fas fa-box-open d-block"></i>
+                  <p>No items found.</p>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
-</div>
-{% endif %}
+  {% endif %}
 
-<!-- Department-wise current stock available -->
-<div class="card mb-4">
-  <div class="card-header">
-    <i class="fas fa-building me-2"></i>Department-wise Current Stock (Available in Each Department)
-  </div>
-  <div class="card-body">
-    {% if not dept_current_stock %}
-      <p class="text-muted text-center py-4 mb-0">No matching data found.</p>
-    {% else %}
-    <div class="accordion" id="deptCurrentStockAccordion">
-      {% for dept_name, items in dept_current_stock.items() %}
-      {% set panel_id = 'deptCurrent' ~ loop.index %}
-      <div class="accordion-item">
-        <h2 class="accordion-header">
-          <button class="accordion-button dept-accordion-btn {{ '' if loop.first else 'collapsed' }}"
-                  type="button" data-bs-toggle="collapse" data-bs-target="#{{ panel_id }}">
-            <i class="fas fa-cubes me-2"></i>
-            {{ dept_name }}
-            <span class="badge bg-info ms-2 dept-item-count">{{ items|length }} item(s)</span>
+  <!-- ── Department-wise Current Stock ── -->
+  <div class="premium-panel">
+    <div class="premium-panel-header">
+      <i class="fas fa-building"></i>
+      <span>Department-wise Current Stock Available</span>
+    </div>
+    <div class="premium-panel-body">
+      <div class="section-heading">
+        <div class="icon-box teal"><i class="fas fa-layer-group"></i></div>
+        <div>
+          <h5>Stock Per Department</h5>
+          <small>Click a department to expand its inventory</small>
+        </div>
+      </div>
+
+      {% if not dept_current_stock %}
+      <div class="empty-state">
+        <i class="fas fa-search d-block"></i>
+        <p>No matching data found.</p>
+      </div>
+      {% else %}
+      <div class="dept-accordion" id="currentStockAccordion">
+        {% for dept_name, items in dept_current_stock.items() %}
+        {% set acc_id = 'cs_' ~ loop.index %}
+        <div class="dept-acc-item">
+          <button class="dept-acc-btn {{ 'open' if loop.first else '' }}"
+                  type="button" onclick="toggleAcc('{{ acc_id }}', this)">
+            <div class="dept-icon"><i class="fas fa-cubes"></i></div>
+            <span class="dept-name">{{ dept_name }}</span>
+            <span class="dept-badge">{{ items|length }} item(s)</span>
+            <i class="fas fa-chevron-down dept-chevron"></i>
           </button>
-        </h2>
-        <div id="{{ panel_id }}" class="accordion-collapse collapse {{ 'show' if loop.first else '' }}"
-             data-bs-parent="#deptCurrentStockAccordion">
-          <div class="accordion-body p-0">
+          <div class="dept-acc-body {{ 'show' if loop.first else '' }}" id="{{ acc_id }}">
             <div class="table-responsive">
-              <table class="table table-hover mb-0">
+              <table class="stock-table">
                 <thead>
                   <tr>
                     <th>Item</th>
                     <th>Current Stock</th>
                     <th>Issued Qty</th>
                     <th>Unit</th>
+                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for item_name, info in items.items() %}
-                  <tr class="{{ 'stock-low' if info.current < 10 else 'stock-ok' }}">
-                    <td>{{ item_name }}</td>
+                  <tr class="{{ 'row-low' if info.current < 10 else 'row-ok' }}">
+                    <td><strong>{{ item_name }}</strong></td>
                     <td>
-                      <span class="badge {{ 'bg-danger' if info.current < 10 else 'bg-success' }} stock-badge-small">
+                      <span class="qty-pill {{ 'danger' if info.current < 10 else 'success' }}">
                         {{ info.current }}
                       </span>
                     </td>
+                    <td><span class="qty-pill amber">{{ info.issued }}</span></td>
+                    <td><span style="color:#64748b;">{{ info.unit }}</span></td>
                     <td>
-                      <span class="badge bg-primary stock-badge-small">
-                        {{ info.issued }}
-                      </span>
+                      {% if info.current < 10 %}
+                        <span style="font-size:12px;font-weight:600;color:#dc2626;">
+                          <i class="fas fa-exclamation-triangle me-1"></i>Low
+                        </span>
+                      {% else %}
+                        <span style="font-size:12px;font-weight:600;color:#16a34a;">
+                          <i class="fas fa-check-circle me-1"></i>OK
+                        </span>
+                      {% endif %}
                     </td>
-                    <td>{{ info.unit }}</td>
                   </tr>
                   {% endfor %}
                 </tbody>
@@ -125,42 +340,54 @@
             </div>
           </div>
         </div>
+        {% endfor %}
       </div>
-      {% endfor %}
+      {% endif %}
     </div>
-    {% endif %}
   </div>
-</div>
 
-<!-- Department-wise issued quantity, one accordion panel per department -->
-<div class="card">
-  <div class="card-header">
-    <i class="fas fa-building me-2"></i>Department-wise Issued Stock
-  </div>
-  <div class="card-body">
-    {% if not dept_data %}
-      <p class="text-muted text-center py-4 mb-0">No matching data found.</p>
-    {% else %}
-    <div class="accordion" id="deptAccordion">
-      {% for dept_name, items in dept_data.items() %}
-      {% set panel_id = 'dept' ~ loop.index %}
-      <div class="accordion-item">
-        <h2 class="accordion-header">
-          <button class="accordion-button dept-accordion-btn {{ '' if loop.first else 'collapsed' }}"
-                  type="button" data-bs-toggle="collapse" data-bs-target="#{{ panel_id }}">
-            <i class="fas fa-users me-2"></i>
-            {{ dept_name }}
-            <span class="badge bg-secondary ms-2 dept-item-count">{{ items|length }} item(s)</span>
+  <!-- ── Department-wise Issued Stock ── -->
+  <div class="premium-panel">
+    <div class="premium-panel-header" style="background:linear-gradient(135deg,#065f46,#059669);">
+      <i class="fas fa-hand-holding-box"></i>
+      <span>Department-wise Issued Stock</span>
+    </div>
+    <div class="premium-panel-body">
+      <div class="section-heading">
+        <div class="icon-box amber"><i class="fas fa-people-carry"></i></div>
+        <div>
+          <h5>Total Issued by Department</h5>
+          <small>Cumulative issued quantities per department</small>
+        </div>
+      </div>
+
+      {% if not dept_data %}
+      <div class="empty-state">
+        <i class="fas fa-search d-block"></i>
+        <p>No matching data found.</p>
+      </div>
+      {% else %}
+      <div class="dept-accordion" id="issuedStockAccordion">
+        {% for dept_name, items in dept_data.items() %}
+        {% set acc_id = 'is_' ~ loop.index %}
+        <div class="dept-acc-item">
+          <button class="dept-acc-btn {{ 'open' if loop.first else '' }}"
+                  type="button" onclick="toggleAcc('{{ acc_id }}', this)">
+            <div class="dept-icon" style="background:linear-gradient(135deg,#065f46,#059669);">
+              <i class="fas fa-users"></i>
+            </div>
+            <span class="dept-name">{{ dept_name }}</span>
+            <span class="dept-badge" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0;">
+              {{ items|length }} item(s)
+            </span>
+            <i class="fas fa-chevron-down dept-chevron"></i>
           </button>
-        </h2>
-        <div id="{{ panel_id }}" class="accordion-collapse collapse {{ 'show' if loop.first else '' }}"
-             data-bs-parent="#deptAccordion">
-          <div class="accordion-body p-0">
+          <div class="dept-acc-body {{ 'show' if loop.first else '' }}" id="{{ acc_id }}">
             <div class="table-responsive">
-              <table class="table table-hover mb-0">
+              <table class="stock-table">
                 <thead>
                   <tr>
-                    <th>Item</th>
+                    <th>Item Name</th>
                     <th>Total Qty Issued</th>
                     <th>Unit</th>
                   </tr>
@@ -168,9 +395,9 @@
                 <tbody>
                   {% for item_name, info in items.items() %}
                   <tr>
-                    <td>{{ item_name }}</td>
-                    <td><span class="badge bg-primary">{{ info.qty }}</span></td>
-                    <td>{{ info.unit }}</td>
+                    <td><strong>{{ item_name }}</strong></td>
+                    <td><span class="qty-pill primary">{{ info.qty }}</span></td>
+                    <td><span style="color:#64748b;">{{ info.unit }}</span></td>
                   </tr>
                   {% endfor %}
                 </tbody>
@@ -178,11 +405,22 @@
             </div>
           </div>
         </div>
+        {% endfor %}
       </div>
-      {% endfor %}
+      {% endif %}
     </div>
-    {% endif %}
   </div>
-</div>
 
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function toggleAcc(id, btn) {
+    const body = document.getElementById(id);
+    const isOpen = body.classList.contains('show');
+    body.classList.toggle('show', !isOpen);
+    btn.classList.toggle('open', !isOpen);
+  }
+</script>
 {% endblock %}
