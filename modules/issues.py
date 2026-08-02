@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 from database.db import get_db, fetchall, fetchone
 from datetime import date
 import io
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from modules.employees import _display_dept_name, COMBINE_GROUPS
@@ -265,6 +265,201 @@ def add():
         conn.close()
 
     return redirect(url_for("issues.index"))
+
+
+@issues_bp.route('/issues/import-excel', methods=['POST'])
+def import_excel():
+    """
+    Bulk-import issue records from an uploaded Excel file — same fields,
+    same permission gate, and same department/stock validation as the
+    single-record Add form above.
+
+    Expected header row (any order, case-insensitive):
+        Issue Date | Emp Code | Item Name | Qty | Returnable | Return Due Date | Remarks
+
+    Issue Date and Return Due Date columns can be real Excel date cells
+    or plain text in YYYY-MM-DD format. Returnable accepts Yes/No, 1/0,
+    True/False, or can simply be left blank (treated as No).
+    """
+    if 'user' not in session:
+        return redirect(url_for('auth.login'))
+
+    role = session.get('role')
+    if not has_permission('can_create'):
+        flash("You don't have permission to issue PPE/Equipment.", "danger")
+        return redirect(url_for('issues.index'))
+
+    file = request.files.get('excel_file')
+    if not file or file.filename == '':
+        flash('Please choose an Excel file to import.', 'danger')
+        return redirect(url_for('issues.index'))
+
+    try:
+        wb = load_workbook(file, data_only=True)
+        ws = wb.active
+    except Exception as e:
+        flash(f'Could not read the Excel file: {e}', 'danger')
+        return redirect(url_for('issues.index'))
+
+    header_row = [str(cell.value).strip().lower() if cell.value is not None else '' for cell in ws[1]]
+    header_map = {h: idx for idx, h in enumerate(header_row) if h}
+
+    required_cols = ['issue date', 'emp code', 'item name', 'qty']
+    missing = [col for col in required_cols if col not in header_map]
+    if missing:
+        flash(
+            "Excel is missing required column(s): " + ", ".join(missing) + ". "
+            "Expected headers: Issue Date, Emp Code, Item Name, Qty, Returnable, Return Due Date, Remarks.",
+            'danger'
+        )
+        return redirect(url_for('issues.index'))
+
+    def _cell(row, col_name):
+        idx = header_map.get(col_name)
+        if idx is None or idx >= len(row):
+            return None
+        return row[idx].value
+
+    def _to_date_str(value):
+        if value is None or value == '':
+            return None
+        if hasattr(value, 'strftime'):
+            return value.strftime('%Y-%m-%d')
+        return str(value).strip()
+
+    dept = session.get('department')
+    is_admin = role in ['Admin', 'Super Admin']
+    allowed_variants = None
+    if not is_admin:
+        display_name = _display_dept_name(dept)
+        allowed_variants = [v.lower() for v in COMBINE_GROUPS.get(display_name, [dept])]
+
+    conn = get_db()
+    c = conn.cursor()
+    imported = 0
+    duplicates = 0
+    skipped = 0
+    errors = []
+
+    try:
+        for row_num, row in enumerate(ws.iter_rows(min_row=2), start=2):
+            emp_code = _cell(row, 'emp code')
+            item_name = _cell(row, 'item name')
+            raw_qty = _cell(row, 'qty')
+            raw_issue_date = _cell(row, 'issue date')
+            raw_returnable = _cell(row, 'returnable')
+            raw_return_due = _cell(row, 'return due date')
+            remarks = _cell(row, 'remarks') or ''
+
+            # Skip fully blank trailing rows silently (no error noise)
+            if not any([emp_code, item_name, raw_qty, raw_issue_date]):
+                continue
+
+            if not emp_code or not item_name or raw_qty in (None, '') or not raw_issue_date:
+                skipped += 1
+                errors.append(f"Row {row_num}: missing Issue Date / Emp Code / Item Name / Qty — skipped.")
+                continue
+
+            emp_code = str(emp_code).strip()
+            item_name = str(item_name).strip()
+
+            try:
+                qty = int(raw_qty)
+                if qty <= 0:
+                    raise ValueError()
+            except (ValueError, TypeError):
+                skipped += 1
+                errors.append(f"Row {row_num}: invalid Qty '{raw_qty}' — skipped.")
+                continue
+
+            issue_date = _to_date_str(raw_issue_date)
+
+            returnable = 1 if str(raw_returnable or '').strip().lower() in ('yes', '1', 'true') else 0
+            return_due = _to_date_str(raw_return_due) if returnable else None
+
+            c.execute("SELECT id, department FROM employees WHERE emp_code=%s AND status='Active'", (emp_code,))
+            emp = fetchone(c)
+            if not emp:
+                skipped += 1
+                errors.append(f"Row {row_num}: employee code '{emp_code}' not found (or inactive) — skipped.")
+                continue
+
+            if not is_admin and (emp['department'] or '').lower() not in allowed_variants:
+                skipped += 1
+                errors.append(f"Row {row_num}: employee '{emp_code}' is outside your department — skipped.")
+                continue
+
+            c.execute("SELECT id, stock FROM items WHERE LOWER(item_name)=LOWER(%s)", (item_name,))
+            item = fetchone(c)
+            if not item:
+                skipped += 1
+                errors.append(f"Row {row_num}: item '{item_name}' not found — skipped.")
+                continue
+
+            # ── DUPLICATE CHECK ──────────────────────────────────────────
+            # Duplicate = Employee + Item + Qty + Issue Date + Returnable
+            # all match an existing row exactly. Remarks and Return Due
+            # Date are intentionally ignored for this check.
+            c.execute("""
+                SELECT id FROM issue_register
+                WHERE employee_id=%s
+                  AND item_id=%s
+                  AND qty=%s
+                  AND issue_date=%s
+                  AND returnable=%s
+                LIMIT 1
+            """, (emp['id'], item['id'], qty, issue_date, returnable))
+            existing = fetchone(c)
+            if existing:
+                duplicates += 1
+                continue  # identical row already exists — silently skip
+
+            if item['stock'] < qty:
+                skipped += 1
+                errors.append(f"Row {row_num}: insufficient overall stock for '{item_name}' — skipped.")
+                continue
+
+            employee_department = emp['department']
+            issue_department = find_issue_department(c, item['id'], employee_department, qty)
+            if not issue_department:
+                skipped += 1
+                errors.append(
+                    f"Row {row_num}: insufficient stock in '{employee_department}' "
+                    f"(or related departments) for '{item_name}' — skipped."
+                )
+                continue
+
+            c.execute("""
+                INSERT INTO issue_register
+                (issue_date, employee_id, item_id, qty, issued_by, returnable,
+                 return_due_date, status, remarks, department)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                issue_date, emp['id'], item['id'], qty, session['full_name'],
+                returnable, return_due, 'Issued', remarks, issue_department
+            ))
+            c.execute("UPDATE items SET stock = stock - %s WHERE id=%s", (qty, item['id']))
+            conn.commit()
+            imported += 1
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Import failed partway through: {e}', 'danger')
+    finally:
+        conn.close()
+
+    flash(
+        f'Import complete: {imported} new record(s) issued, '
+        f'{duplicates} duplicate(s) skipped (already existed), '
+        f'{skipped} row(s) skipped due to errors.',
+        'success' if imported else 'warning'
+    )
+    if errors:
+        shown = errors[:15]
+        extra = f' … and {len(errors) - 15} more row(s) with issues.' if len(errors) > 15 else ''
+        flash('Details: ' + ' | '.join(shown) + extra, 'warning')
+
+    return redirect(url_for('issues.index'))
 
 
 @issues_bp.route('/issues/edit/<int:id>', methods=['POST'])

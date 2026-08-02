@@ -304,6 +304,7 @@ DEPARTMENT_ALIASES = {
 VALID_CATEGORIES = {
     'MBC',
     'MANPOWER BASED',
+    'JBA',
 }
 
 
@@ -471,10 +472,15 @@ def sync_employees():
                     continue
 
                 # Validate category - only MBC and MANPOWER BASED allowed
-                category = _normalize_category(str(row.get('category') or '').strip())
-                if not category:
-                    invalid_category += 1
-                    continue
+                if view_name == "view_EmployeeMaster_Report_staff":
+                    # Staff view - category validation not required
+                    category = str(row.get('category') or '').strip()
+                else:
+                    # Associates view - category validation required
+                    category = _normalize_category(str(row.get('category') or '').strip())
+                    if not category:
+                        invalid_category += 1
+                        continue
 
                 department = _normalize_department(str(row.get('department') or '').strip(), dept_lookup, pg_cursor)
                 designation = str(row.get('designation') or '').strip()

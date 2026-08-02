@@ -102,11 +102,8 @@
 }
 </style>
 
-
-
-<div class="row g-4">
-
-  <div class="col-12 mb-3">
+<!-- ── Filter bar: date filters + Download + Add Issue (moved here from the old left-side card) ── -->
+<div class="col-12 mb-3">
   <div class="card">
     <div class="card-body d-flex flex-wrap align-items-end gap-3">
       <div>
@@ -126,114 +123,56 @@
       <button type="button" class="btn btn-success ms-auto" onclick="downloadReport()">
         <i class="fas fa-download me-1"></i>Download Excel
       </button>
+      {% if can_create %}
+      <button type="button" class="btn btn-jsw" data-bs-toggle="modal" data-bs-target="#addIssueModal">
+        <i class="fas fa-plus me-1"></i>Issue PPE
+      </button>
+      <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#importExcelModal">
+        <i class="fas fa-file-excel me-1"></i>Import Excel
+      </button>
+      {% endif %}
     </div>
   </div>
 </div>
-  <div class="col-md-4">
-    <div class="card">
-      <div class="card-header"><i class="fas fa-hand-holding me-2"></i>Issue PPE/Equipment</div>
-      <div class="card-body">
-        {% if can_create %}
-        <form method="POST" action="{{ url_for('issues.add') }}">
 
-          <div class="mb-3">
-            <label class="form-label">Issue Date *</label>
-            <input type="date" name="issue_date" class="form-control" value="{{ today }}" required>
-          </div>
-
-          <!-- ── Employee multi-select ── -->
-          <div class="mb-3">
-            <label class="form-label">Employee *</label>
-            <!-- Hidden input carries the final value to Flask -->
-            <input type="hidden" name="employee_id" id="emp-hidden" required>
-            <div class="ms-wrapper" id="emp-wrapper">
-              <button type="button" class="ms-trigger" id="emp-trigger"
-                      onclick="togglePanel('emp')">
-                <span id="emp-label">-- Select Employee --</span>
-                <span style="font-size:10px;color:#6c757d;">▼</span>
-              </button>
-              <div class="ms-panel" id="emp-panel">
-                <input type="text" class="ms-search" id="emp-search"
-                       placeholder="Search name or code…"
-                       oninput="filterList('emp')">
-                <div class="ms-list" id="emp-list"></div>
-                <div class="ms-btns">
-                  <button type="button" class="ms-apply" onclick="applySelection('emp')">Apply</button>
-                  <button type="button" class="ms-cancel" onclick="closePanel('emp')">Cancel</button>
-                </div>
-              </div>
-            </div>
-            <div class="badge-wrap" id="emp-badges"></div>
-          </div>
-
-          <!-- ── Item multi-select ── -->
-          <div class="mb-3">
-            <label class="form-label">Item *</label>
-            <!-- Hidden input carries the final value to Flask -->
-            <input type="hidden" name="item_id" id="item-hidden" required>
-            <div class="ms-wrapper" id="item-wrapper">
-              <button type="button" class="ms-trigger" id="item-trigger"
-                      onclick="togglePanel('item')">
-                <span id="item-label">-- Select Item --</span>
-                <span style="font-size:10px;color:#6c757d;">▼</span>
-              </button>
-              <div class="ms-panel" id="item-panel">
-                <input type="text" class="ms-search" id="item-search"
-                       placeholder="Search item…"
-                       oninput="filterList('item')">
-                <div class="ms-list" id="item-list"></div>
-                <div class="ms-btns">
-                  <button type="button" class="ms-apply" onclick="applySelection('item')">Apply</button>
-                  <button type="button" class="ms-cancel" onclick="closePanel('item')">Cancel</button>
-                </div>
-              </div>
-            </div>
-            <div class="badge-wrap" id="item-badges"></div>
-            <div id="stockWarning" class="text-danger small mt-1" style="display:none">⚠ Insufficient stock!</div>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Quantity *</label>
-            <input type="number" name="qty" id="qtyInput" class="form-control"
-                   min="1" value="1" required oninput="checkStock()">
-          </div>
-
-          <div class="mb-3">
-            <div class="form-check">
-              <input type="checkbox" name="returnable" class="form-check-input"
-                     id="returnableCheck"
-                     onchange="document.getElementById('dueDateRow').style.display=this.checked?'block':'none'">
-              <label class="form-check-label" for="returnableCheck">Returnable Item</label>
-            </div>
-          </div>
-
-          <div class="mb-3" id="dueDateRow" style="display:none">
-            <label class="form-label">Return Due Date</label>
-            <input type="date" name="return_due_date" class="form-control">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Remarks</label>
-            <textarea name="remarks" class="form-control" rows="2"></textarea>
-          </div>
-
-          <button type="submit" class="btn btn-jsw btn-primary w-100">
-            <i class="fas fa-share me-1"></i>Issue Item
-          </button>
-
-        </form>
-        {% else %}
-        <div class="text-center text-muted py-4">
-          <i class="fas fa-lock d-block mb-2" style="font-size:1.5rem;"></i>
-          You do not have permission to issue PPE/Equipment.<br>
-          <span class="small">View only</span>
-        </div>
-        {% endif %}
+{% if can_create %}
+<!-- ── Bulk Import Issue Records from Excel ── -->
+<div class="modal fade" id="importExcelModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-file-excel me-2"></i>Import Issue Records from Excel</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
+      <form method="POST" action="{{ url_for('issues.import_excel') }}" enctype="multipart/form-data">
+        <div class="modal-body">
+          <p class="text-muted small mb-2">
+            Excel must have a header row with these column names (any order):
+          </p>
+          <ul class="text-muted small mb-3">
+            <li><strong>Issue Date</strong>, <strong>Emp Code</strong>, <strong>Item Name</strong>, <strong>Qty</strong> — required</li>
+            <li><strong>Returnable</strong> (Yes/No), <strong>Return Due Date</strong>, <strong>Remarks</strong> — optional</li>
+          </ul>
+          <div class="mb-3">
+            <label class="form-label">Excel File *</label>
+            <input type="file" name="excel_file" class="form-control" accept=".xlsx,.xls" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-jsw">
+            <i class="fas fa-upload me-1"></i>Import
+          </button>
+        </div>
+      </form>
     </div>
   </div>
+</div>
+{% endif %}
 
-  <div class="col-md-8">
+<!-- ── Recent Issues — now full width ── -->
+<div class="row g-4">
+  <div class="col-12">
     <div class="card">
       <div class="card-header"><i class="fas fa-list me-2"></i>Recent Issues</div>
       <div class="card-body p-0">
@@ -347,11 +286,117 @@
   </div>
 </div>
 
+{% if can_create %}
+<!-- ── Add / Issue PPE Modal (was the left-side card; same fields, same validation, same permission gate) ── -->
+<div class="modal fade" id="addIssueModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-hand-holding me-2"></i>Issue PPE/Equipment</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('issues.add') }}">
+        <div class="modal-body">
+
+          <div class="mb-3">
+            <label class="form-label">Issue Date *</label>
+            <input type="date" name="issue_date" class="form-control" value="{{ today }}" required>
+          </div>
+
+          <!-- ── Employee multi-select ── -->
+          <div class="mb-3">
+            <label class="form-label">Employee *</label>
+            <!-- Hidden input carries the final value to Flask -->
+            <input type="hidden" name="employee_id" id="emp-hidden" required>
+            <div class="ms-wrapper" id="emp-wrapper">
+              <button type="button" class="ms-trigger" id="emp-trigger"
+                      onclick="togglePanel('emp')">
+                <span id="emp-label">-- Select Employee --</span>
+                <span style="font-size:10px;color:#6c757d;">▼</span>
+              </button>
+              <div class="ms-panel" id="emp-panel">
+                <input type="text" class="ms-search" id="emp-search"
+                       placeholder="Search name or code…"
+                       oninput="filterList('emp')">
+                <div class="ms-list" id="emp-list"></div>
+                <div class="ms-btns">
+                  <button type="button" class="ms-apply" onclick="applySelection('emp')">Apply</button>
+                  <button type="button" class="ms-cancel" onclick="closePanel('emp')">Cancel</button>
+                </div>
+              </div>
+            </div>
+            <div class="badge-wrap" id="emp-badges"></div>
+          </div>
+
+          <!-- ── Item multi-select ── -->
+          <div class="mb-3">
+            <label class="form-label">Item *</label>
+            <!-- Hidden input carries the final value to Flask -->
+            <input type="hidden" name="item_id" id="item-hidden" required>
+            <div class="ms-wrapper" id="item-wrapper">
+              <button type="button" class="ms-trigger" id="item-trigger"
+                      onclick="togglePanel('item')">
+                <span id="item-label">-- Select Item --</span>
+                <span style="font-size:10px;color:#6c757d;">▼</span>
+              </button>
+              <div class="ms-panel" id="item-panel">
+                <input type="text" class="ms-search" id="item-search"
+                       placeholder="Search item…"
+                       oninput="filterList('item')">
+                <div class="ms-list" id="item-list"></div>
+                <div class="ms-btns">
+                  <button type="button" class="ms-apply" onclick="applySelection('item')">Apply</button>
+                  <button type="button" class="ms-cancel" onclick="closePanel('item')">Cancel</button>
+                </div>
+              </div>
+            </div>
+            <div class="badge-wrap" id="item-badges"></div>
+            <div id="stockWarning" class="text-danger small mt-1" style="display:none">⚠ Insufficient stock!</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Quantity *</label>
+            <input type="number" name="qty" id="qtyInput" class="form-control"
+                   min="1" value="1" required oninput="checkStock()">
+          </div>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input type="checkbox" name="returnable" class="form-check-input"
+                     id="returnableCheck"
+                     onchange="document.getElementById('dueDateRow').style.display=this.checked?'block':'none'">
+              <label class="form-check-label" for="returnableCheck">Returnable Item</label>
+            </div>
+          </div>
+
+          <div class="mb-3" id="dueDateRow" style="display:none">
+            <label class="form-label">Return Due Date</label>
+            <input type="date" name="return_due_date" class="form-control">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Remarks</label>
+            <textarea name="remarks" class="form-control" rows="2"></textarea>
+          </div>
+
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-jsw btn-primary">
+            <i class="fas fa-share me-1"></i>Issue Item
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
-  
+
 // ✅ BEST — silences VS Code linter AND works in browser
 const EMPLOYEES = JSON.parse('{{ employees | tojson | safe }}');
 const ITEMS = JSON.parse('{{ items | tojson | safe }}');
