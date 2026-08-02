@@ -304,12 +304,12 @@ def import_excel():
     header_row = [str(cell.value).strip().lower() if cell.value is not None else '' for cell in ws[1]]
     header_map = {h: idx for idx, h in enumerate(header_row) if h}
 
-    required_cols = ['issue date', 'emp code', 'item name', 'qty']
+    required_cols = ['issue date', 'emp code','department','contractor','item name', 'qty']
     missing = [col for col in required_cols if col not in header_map]
     if missing:
         flash(
             "Excel is missing required column(s): " + ", ".join(missing) + ". "
-            "Expected headers: Issue Date, Emp Code, Item Name, Qty, Returnable, Return Due Date, Remarks.",
+            "Expected headers: Issue Date, Emp Code, Department, Contractor, Item Name, Qty, Returnable, Return Due Date, Remarks.",
             'danger'
         )
         return redirect(url_for('issues.index'))
@@ -349,6 +349,8 @@ def import_excel():
             raw_issue_date = _cell(row, 'issue date')
             raw_returnable = _cell(row, 'returnable')
             raw_return_due = _cell(row, 'return due date')
+            raw_department = _cell(row, 'department')
+            raw_contractor = _cell(row, 'contractor')
             remarks = _cell(row, 'remarks') or ''
 
             # Skip fully blank trailing rows silently (no error noise)
@@ -361,6 +363,8 @@ def import_excel():
                 continue
 
             emp_code = str(emp_code).strip()
+            department = str(raw_department or '').strip()
+            contractor = str(raw_contractor or '').strip()
             item_name = str(item_name).strip()
 
             try:
@@ -377,12 +381,41 @@ def import_excel():
             returnable = 1 if str(raw_returnable or '').strip().lower() in ('yes', '1', 'true') else 0
             return_due = _to_date_str(raw_return_due) if returnable else None
 
-            c.execute("SELECT id, department FROM employees WHERE emp_code=%s AND status='Active'", (emp_code,))
+            c.execute("""
+                    SELECT id, department, contractor
+                    FROM employees
+                    WHERE emp_code=%s
+                    AND status='Active'
+                """, (emp_code,))
             emp = fetchone(c)
             if not emp:
                 skipped += 1
                 errors.append(f"Row {row_num}: employee code '{emp_code}' not found (or inactive) — skipped.")
                 continue
+            # ---------- Department Validation ----------
+            if department:
+                excel_department = _display_dept_name(department)
+                system_department = _display_dept_name(emp['department'] or '')
+
+                if excel_department.lower() != system_department.lower():
+                    skipped += 1
+                    errors.append(
+                        f"Row {row_num}: department mismatch "
+                        f"(Excel: {department}, System: {emp['department']}) - skipped."
+                    )
+                    continue
+
+            # ---------- Contractor Validation ----------
+            if contractor:
+                system_contractor = (emp['contractor'] or '').strip()
+
+                if system_contractor.lower() != contractor.lower():
+                    skipped += 1
+                    errors.append(
+                        f"Row {row_num}: contractor mismatch "
+                        f"(Excel: {contractor}, System: {system_contractor}) - skipped."
+                    )
+                    continue
 
             if not is_admin and (emp['department'] or '').lower() not in allowed_variants:
                 skipped += 1
