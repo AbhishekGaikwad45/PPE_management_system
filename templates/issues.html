@@ -100,6 +100,36 @@
     padding: 2px 8px; border-radius: 3px;
     font-size: 11px; font-weight: 500;
 }
+.recent-issues-card{
+    height: calc(100vh - 180px);
+    display: flex;
+    flex-direction: column;
+}
+
+.recent-issues-card .card-body{
+    flex: 1;
+    padding: 0;
+    overflow: hidden;
+}
+
+.recent-issues-table{
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+.recent-issues-table table{
+    min-width: 1200px;
+    width: 100%;
+}
+
+.recent-issues-table thead th{
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #2f68a8;
+    color: #fff;
+}
 </style>
 
 <!-- ── Filter bar: date filters + Download + Add Issue (moved here from the old left-side card) ── -->
@@ -173,10 +203,10 @@
 <!-- ── Recent Issues — now full width ── -->
 <div class="row g-4">
   <div class="col-12">
-    <div class="card">
+    <div class="card recent-issues-card">
       <div class="card-header"><i class="fas fa-list me-2"></i>Recent Issues</div>
       <div class="card-body p-0">
-        <div class="table-responsive">
+        <div class="recent-issues-table">
           <table class="table table-hover mb-0">
             <thead>
   <tr>

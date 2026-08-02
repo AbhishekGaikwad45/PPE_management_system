@@ -14,6 +14,41 @@
 .import-zone:hover, .import-zone.dragover { background: #eef2ff; border-color: #2563A8; }
 .import-zone i { font-size: 2.5rem; color: #1A3A5C; }
 #fileNameDisplay { margin-top: 10px; font-size: 13px; color: #2563A8; font-weight: 500; }
+.employee-card {
+    height: calc(100vh);
+    display: flex;
+    flex-direction: column;
+}
+
+.employee-card .card-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.employee-table-wrapper {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+.employee-table-wrapper table {
+    width: 100%;
+    min-width: 1200px;
+}
+
+.employee-table-wrapper thead th {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: #1A3A5C;
+    color: #fff;
+}
+
+#paginationBar {
+    flex-shrink: 0;
+}
 </style>
 {% endblock %}
 
@@ -72,7 +107,7 @@
 {% endif %}
 
 <!-- Employee Table -->
-<div class="card">
+<div class="card employee-card">
   <div class="card-header">
     <i class="fas fa-users me-2"></i>
     {% if is_admin %}
@@ -86,7 +121,7 @@
       <input type="text" id="searchInput" class="form-control" placeholder="Search employee (searches ALL employees, not just this page)...">
       <div id="searchStatus" class="small text-muted mt-1" style="display:none;"></div>
     </div>
-    <div class="table-responsive">
+    <div class="table-responsive employee-table-wrapper">
       <table class="table table-hover mb-0" id="empTable">
         <thead>
           <tr>

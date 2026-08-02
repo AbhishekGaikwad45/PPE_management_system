@@ -154,6 +154,7 @@ def add():
 
     conn = get_db()
     c = conn.cursor()
+    issued_count = 0
 
     try:
         employee_ids = [int(x) for x in request.form['employee_id'].split(',') if x.strip()]
@@ -255,7 +256,7 @@ def add():
                 """, (qty, item_id))
 
                 conn.commit()
-                flash("PPE/Equipment issued successfully.", "success")
+                issued_count += 1
 
     except Exception as e:
         conn.rollback()
@@ -263,6 +264,12 @@ def add():
 
     finally:
         conn.close()
+
+    if issued_count:
+        flash(
+            f"{issued_count} PPE/Equipment issue record(s) created successfully.",
+            "success"
+        )   
 
     return redirect(url_for("issues.index"))
 

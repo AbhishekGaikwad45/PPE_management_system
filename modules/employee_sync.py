@@ -386,7 +386,7 @@ def _normalize_department(raw_dept, dept_lookup, pg_cursor):
 def _normalize_category(raw_category):
     """
     Normalize the category string and validate against valid categories.
-    Only MBC and MANPOWER BASED are accepted.
+    Accepted categories: MBC, MANPOWER BASED and JBA.
     Returns the normalized category or empty string if invalid.
     """
     if not raw_category:
@@ -470,15 +470,20 @@ def sync_employees():
                     # though they're still present/Active in SQL Server.
                     blocked_deleted += 1
                     continue
-
-                # Validate category - only MBC and MANPOWER BASED allowed
+                seen_emp_codes.add(emp_code)
+                # ---------------- STAFF VIEW ----------------
                 if view_name == "view_EmployeeMaster_Report_staff":
-                    # Staff view - category validation not required
-                    category = str(row.get('category') or '').strip()
+                    # Staff view  Active employees sync 
+                    # Category check not required.
+                    category = str(row.get("category") or "").strip()
+
+                # ---------------- ASSOCIATES VIEW ----------------
                 else:
-                    # Associates view - category validation required
-                    category = _normalize_category(str(row.get('category') or '').strip())
-                    if not category:
+                    # Associates view  Active employees sync 
+                    # Category check required.
+                    category = _normalize_category(str(row.get("category") or "").strip())
+
+                    if category not in ("MBC", "MANPOWER BASED", "JBA"):
                         invalid_category += 1
                         continue
 
@@ -489,7 +494,7 @@ def sync_employees():
                 # Active unless explicitly marked otherwise
                 status = 'Inactive' if raw_status in ('inactive', 'in active', 'no', 'n', '0', 'false') else 'Active'
 
-                seen_emp_codes.add(emp_code)
+                
 
                 if contractor:
                     pg_cursor.execute("SELECT id FROM contractors WHERE LOWER(name)=LOWER(%s)", (contractor,))
@@ -503,14 +508,23 @@ def sync_employees():
                 pg_cursor.execute("SELECT * FROM employees WHERE emp_code=%s", (emp_code,))
                 existing = fetchone(pg_cursor)
 
+
                 if existing is None:
-                    # New employee — only add them if they're Active.
-                    # Inactive employees who don't exist yet are simply skipped.
-                    if status == 'Active':
+                    if status == "Active":
                         pg_cursor.execute("""
-                            INSERT INTO employees (emp_code, name, department, contractor, designation, category, status)
+                            INSERT INTO employees
+                            (emp_code, name, department, contractor,
+                            designation, category, status)
                             VALUES (%s,%s,%s,%s,%s,%s,%s)
-                        """, (emp_code, name, department, contractor, designation, category, status))
+                        """, (
+                            emp_code,
+                            name,
+                            department,
+                            contractor,
+                            designation,
+                            category,
+                            status
+                        ))
                         added += 1
                     else:
                         skipped += 1
@@ -563,7 +577,10 @@ def sync_employees():
         if skipped:
             flash(f'{skipped} rows skipped (missing Employee ID/Name, or new-but-Inactive).', 'warning')
         if invalid_category:
-            flash(f'{invalid_category} rows skipped due to invalid category (only MBC and MANPOWER BASED accepted).', 'info')
+            flash(
+                f'{invalid_category} rows skipped due to invalid category (only MBC, MANPOWER BASED and JBA accepted).',
+                'info'
+            )
         if blocked_deleted:
             flash(f'{blocked_deleted} rows skipped because they were previously deleted from the app.', 'info')
         if error_log:
