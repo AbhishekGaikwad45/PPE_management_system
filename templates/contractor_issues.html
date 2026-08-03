@@ -268,16 +268,13 @@
 
           <div class="mb-3">
             <label class="form-label">Item(s) *</label>
-            <!-- ← CHANGED — items with zero stock are rendered `disabled` so
-                 they can never be selected in the first place, not just
-                 rejected after the fact on submit. -->
-                 <select id="itemSelect" class="form-select" multiple>
-                  {% for it in items %}
-                  <option value="{{ it.id }}">
-                    {{ it.label }}
-                  </option>
-                  {% endfor %}
-                </select>
+            <select id="itemSelect" class="form-select" multiple>
+              {% for it in items %}
+              <option value="{{ it.id }}">
+                {{ it.label }}
+              </option>
+              {% endfor %}
+            </select>
           </div>
 
           <div class="row g-2">
@@ -478,12 +475,7 @@
       var empSel = document.getElementById('employeeSelect');
       var itSel = document.getElementById('itemSelect');
       var empVals = Array.from(empSel.selectedOptions).map(o => o.value).filter(v => v);
-      // ← CHANGED — belt-and-suspenders: even though disabled options can't
-      // normally be selected, explicitly drop any out-of-stock item id that
-      // sneaks into the selection before it's ever posted to the server.
-      var itVals = Array.from(itSel.selectedOptions)
-    .map(o => o.value)
-    .filter(v => v);
+      var itVals = Array.from(itSel.selectedOptions).map(o => o.value).filter(v => v);
       if (!document.getElementById('contractorSelect').value || empVals.length === 0 || itVals.length === 0) {
         e.preventDefault();
         alert('Please select a contractor, at least one employee, and at least one item.');

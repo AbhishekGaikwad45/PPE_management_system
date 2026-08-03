@@ -16,7 +16,7 @@
   @keyframes zoomIn { from { transform: scale(1.04); } to { transform: scale(1.00); } }
   .bg-overlay { position: fixed; inset: 0; z-index: 1; background: linear-gradient(125deg, rgba(10,30,60,.72) 0%, rgba(26,79,140,.55) 55%, rgba(10,30,60,.70) 100%); }
   .page-wrap { position: relative; z-index: 2; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
-  .brand-panel { flex: 1; max-width: 520px; display: none; flex-direction: column; justify-content: center; padding: 40px 60px 40px 40px; color: #fff; }
+  .brand-panel { flex: 1; max-width: 520px; display: none; flex-direction: column; justify-content: center; padding: 40px 40px 40px 60px; color: #fff; }
   @media (min-width: 960px) { .brand-panel { display: flex; } }
   .brand-logo { width: 130px; margin-bottom: 28px; filter: drop-shadow(0 4px 12px rgba(0,0,0,.5)); }
   .brand-panel h1 { font-size: 32px; font-weight: 800; line-height: 1.2; margin-bottom: 14px; text-shadow: 0 2px 10px rgba(0,0,0,.4); }
@@ -81,29 +81,6 @@
 <div class="bg-overlay"></div>
 
 <div class="page-wrap">
-  <div class="brand-panel">
-    <!-- <img src="{{ url_for('static', filename='img/JSW.png') }}" alt="JSW" class="brand-logo"> -->
-    <h1>Verify Your<br>Identity</h1>
-    <p>A 6-digit OTP has been sent to your registered email address. Enter it below to proceed with your password reset.</p>
-    <div class="brand-feature">
-      <div class="feat-icon"><i class="fas fa-mobile-alt"></i></div>
-      <div class="feat-text"><strong>6-Digit OTP</strong><span>Check your registered email inbox</span></div>
-    </div>
-    <div class="brand-feature">
-      <div class="feat-icon"><i class="fas fa-hourglass-half"></i></div>
-      <div class="feat-text"><strong>10 Min Expiry</strong><span>OTP is time-limited for security</span></div>
-    </div>
-    <div class="brand-feature">
-      <div class="feat-icon"><i class="fas fa-redo-alt"></i></div>
-      <div class="feat-text"><strong>Resend Option</strong><span>Request a new OTP if it expires</span></div>
-    </div>
-    <div class="carousel-dots">
-      <button class="dot active" onclick="goSlide(0)" id="dot0"></button>
-      <button class="dot" onclick="goSlide(1)" id="dot1"></button>
-      <button class="dot" onclick="goSlide(2)" id="dot2"></button>
-    </div>
-  </div>
-
   <div class="auth-card">
     <div class="auth-card-header">
       <div class="logo-wrap"><i class="fas fa-shield-check" style="font-size:22px;"></i></div>
@@ -153,6 +130,29 @@
       <a href="{{ url_for('password_reset.forgot_password') }}" class="link-muted">
         <i class="fas fa-arrow-left me-1"></i>Request a new OTP
       </a>
+    </div>
+  </div>
+
+  <div class="brand-panel">
+    <!-- <img src="{{ url_for('static', filename='img/JSW.png') }}" alt="JSW" class="brand-logo"> -->
+    <h1>Verify Your<br>Identity</h1>
+    <p>A 6-digit OTP has been sent to your registered email address. Enter it below to proceed with your password reset.</p>
+    <div class="brand-feature">
+      <div class="feat-icon"><i class="fas fa-mobile-alt"></i></div>
+      <div class="feat-text"><strong>6-Digit OTP</strong><span>Check your registered email inbox</span></div>
+    </div>
+    <div class="brand-feature">
+      <div class="feat-icon"><i class="fas fa-hourglass-half"></i></div>
+      <div class="feat-text"><strong>10 Min Expiry</strong><span>OTP is time-limited for security</span></div>
+    </div>
+    <div class="brand-feature">
+      <div class="feat-icon"><i class="fas fa-redo-alt"></i></div>
+      <div class="feat-text"><strong>Resend Option</strong><span>Request a new OTP if it expires</span></div>
+    </div>
+    <div class="carousel-dots">
+      <button class="dot active" onclick="goSlide(0)" id="dot0"></button>
+      <button class="dot" onclick="goSlide(1)" id="dot1"></button>
+      <button class="dot" onclick="goSlide(2)" id="dot2"></button>
     </div>
   </div>
 </div>

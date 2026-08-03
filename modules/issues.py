@@ -76,13 +76,10 @@ def index():
         items_raw = fetchall(c)
 
         items = []
-        dept_lower = (dept or '').strip().lower()
         for i in items_raw:
             d_stock = i["dept_stock"]
-            added_by = (i["added_by_department"] or '').strip().lower()
-
-            # Show item if added by this department, or has department stock > 0, or is global (added_by == '')
-            if added_by == dept_lower or d_stock > 0 or added_by == '':
+            # Show only items that have stock > 0 for this department
+            if d_stock > 0:
                 items.append({
                     "id": i["id"],
                     "stock": d_stock,

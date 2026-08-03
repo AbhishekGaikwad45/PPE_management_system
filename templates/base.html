@@ -796,15 +796,127 @@
       </div>
     </div>
 
-    <div class="page-body animate-fade-in">
+    <!-- ── Toast Container (right-side notifications) ─────────────── -->
+    <div id="toastContainer" aria-live="polite" aria-atomic="true"
+      style="position:fixed; bottom:24px; right:24px; z-index:99999; display:flex; flex-direction:column-reverse; gap:12px; max-width:400px; width:calc(100% - 48px);">
+
       {% with messages = get_flashed_messages(with_categories=true) %}
       {% for category, message in messages %}
-      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      <div class="jsw-toast jsw-toast-{{ category }}" role="alert" aria-live="assertive">
+        <div class="jsw-toast-inner">
+          <div class="jsw-toast-icon">
+            {% if category == 'success' %}<i class="fas fa-check-circle"></i>
+            {% elif category == 'danger' %}<i class="fas fa-times-circle"></i>
+            {% elif category == 'warning' %}<i class="fas fa-exclamation-triangle"></i>
+            {% else %}<i class="fas fa-info-circle"></i>{% endif %}
+          </div>
+          <div class="jsw-toast-body">
+            <div class="jsw-toast-title">
+              {% if category == 'success' %}Success
+              {% elif category == 'danger' %}Error
+              {% elif category == 'warning' %}Warning
+              {% else %}Info{% endif %}
+            </div>
+            <div class="jsw-toast-msg">{{ message }}</div>
+          </div>
+          <button class="jsw-toast-close" onclick="dismissToast(this.closest('.jsw-toast'))" title="Close">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="jsw-toast-progress"></div>
       </div>
       {% endfor %}
       {% endwith %}
+    </div>
+
+    <style>
+      .jsw-toast {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.10);
+        overflow: hidden;
+        min-width: 300px;
+        max-width: 400px;
+        border-left: 5px solid #64748b;
+        animation: toastSlideIn 0.38s cubic-bezier(.16,1,.3,1) both;
+        position: relative;
+      }
+      .jsw-toast.hiding {
+        animation: toastSlideOut 0.32s ease forwards;
+      }
+      @keyframes toastSlideIn {
+        from { opacity: 0; transform: translateX(60px) scale(0.95); }
+        to   { opacity: 1; transform: translateX(0)  scale(1); }
+      }
+      @keyframes toastSlideOut {
+        from { opacity: 1; transform: translateX(0); max-height: 200px; margin-bottom: 0; }
+        to   { opacity: 0; transform: translateX(60px); max-height: 0; margin-bottom: -12px; padding: 0; }
+      }
+      .jsw-toast-success { border-left-color: #16a34a; }
+      .jsw-toast-danger  { border-left-color: #dc2626; }
+      .jsw-toast-warning { border-left-color: #d97706; }
+      .jsw-toast-info    { border-left-color: #2563eb; }
+
+      .jsw-toast-inner {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 14px 14px 10px 14px;
+      }
+      .jsw-toast-icon {
+        font-size: 20px;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+      .jsw-toast-success .jsw-toast-icon { color: #16a34a; }
+      .jsw-toast-danger  .jsw-toast-icon { color: #dc2626; }
+      .jsw-toast-warning .jsw-toast-icon { color: #d97706; }
+      .jsw-toast-info    .jsw-toast-icon { color: #2563eb; }
+
+      .jsw-toast-body { flex: 1; min-width: 0; }
+      .jsw-toast-title {
+        font-weight: 700;
+        font-size: 13.5px;
+        color: #1e293b;
+        margin-bottom: 2px;
+      }
+      .jsw-toast-msg {
+        font-size: 13px;
+        color: #475569;
+        line-height: 1.45;
+        word-break: break-word;
+      }
+      .jsw-toast-close {
+        background: none;
+        border: none;
+        color: #94a3b8;
+        font-size: 13px;
+        cursor: pointer;
+        padding: 2px 4px;
+        flex-shrink: 0;
+        margin-top: -2px;
+        transition: color 0.15s;
+      }
+      .jsw-toast-close:hover { color: #334155; }
+
+      .jsw-toast-progress {
+        height: 3px;
+        background: linear-gradient(90deg, currentColor, transparent);
+        width: 100%;
+        transform-origin: left;
+        animation: toastProgress 5s linear forwards;
+      }
+      .jsw-toast-success .jsw-toast-progress { background: #16a34a; }
+      .jsw-toast-danger  .jsw-toast-progress { background: #dc2626; }
+      .jsw-toast-warning .jsw-toast-progress { background: #d97706; }
+      .jsw-toast-info    .jsw-toast-progress { background: #2563eb; }
+      @keyframes toastProgress {
+        from { width: 100%; }
+        to   { width: 0%; }
+      }
+    </style>
+
+    <div class="page-body animate-fade-in">
       {% block content %}{% endblock %}
     </div>
   </div>
@@ -864,16 +976,15 @@
         }
       }
       
-      // Auto fade-out bootstrap alert banners after 5 seconds
-      setTimeout(function() {
-        const alerts = document.querySelectorAll(".alert-dismissible");
-        alerts.forEach(function(alert) {
-          const bsAlert = bootstrap.Alert.getOrCreateInstance(alert);
-          if (bsAlert) {
-            bsAlert.close();
-          }
-        });
-      }, 5000);
+      // Auto-dismiss toasts after 5 seconds
+      function dismissToast(el) {
+        if (!el) return;
+        el.classList.add('hiding');
+        setTimeout(function() { el && el.remove(); }, 350);
+      }
+      document.querySelectorAll('.jsw-toast').forEach(function(toast) {
+        setTimeout(function() { dismissToast(toast); }, 5000);
+      });
     });
   </script>
   {% block extra_js %}{% endblock %}

@@ -84,7 +84,7 @@
       display: none;
       flex-direction: column;
       justify-content: center;
-      padding: 40px 60px 40px 40px;
+      padding: 40px 40px 40px 60px;
       color: #fff;
     }
 
@@ -413,42 +413,6 @@
   <!-- ── Page wrap ── -->
   <div class="page-wrap">
 
-    <!-- Left brand panel -->
-    <div class="brand-panel">
-      <!-- <img src="{{ url_for('static', filename='img/JSW.png') }}" alt="JSW" class="brand-logo"> -->
-      <h1>PPE &amp; Equipment<br>Management System</h1>
-      <p>JSW Dharamtar Port Operations — ensuring worker safety through real-time tracking of personal protective
-        equipment across all departments.</p>
-
-      <div class="brand-feature">
-        <div class="feat-icon"><i class="fas fa-shield-alt"></i></div>
-        <div class="feat-text">
-          <strong>Safety First</strong>
-          <span>Real-time PPE tracking &amp; alerts</span>
-        </div>
-      </div>
-      <div class="brand-feature">
-        <div class="feat-icon"><i class="fas fa-warehouse"></i></div>
-        <div class="feat-text">
-          <strong>Inventory Control</strong>
-          <span>Department-wise stock management</span>
-        </div>
-      </div>
-      <div class="brand-feature">
-        <div class="feat-icon"><i class="fas fa-chart-line"></i></div>
-        <div class="feat-text">
-          <strong>Analytics &amp; Reports</strong>
-          <span>Consumption trends and KPI dashboards</span>
-        </div>
-      </div>
-
-      <div class="carousel-dots">
-        <button class="dot active" onclick="goSlide(0)" id="dot0"></button>
-        <button class="dot" onclick="goSlide(1)" id="dot1"></button>
-        <button class="dot" onclick="goSlide(2)" id="dot2"></button>
-      </div>
-    </div>
-
     <!-- Auth card -->
     <div class="auth-card">
       <div class="auth-card-header">
@@ -489,6 +453,42 @@
           <i class="fas fa-sign-in-alt me-2"></i>Sign In
         </button>
       </form>
+    </div>
+
+    <!-- Right brand panel -->
+    <div class="brand-panel">
+      <!-- <img src="{{ url_for('static', filename='img/JSW.png') }}" alt="JSW" class="brand-logo"> -->
+      <h1>PPE &amp; Equipment<br>Management System</h1>
+      <p>JSW Dharamtar Port Operations — ensuring worker safety through real-time tracking of personal protective
+        equipment across all departments.</p>
+
+      <div class="brand-feature">
+        <div class="feat-icon"><i class="fas fa-shield-alt"></i></div>
+        <div class="feat-text">
+          <strong>Safety First</strong>
+          <span>Real-time PPE tracking &amp; alerts</span>
+        </div>
+      </div>
+      <div class="brand-feature">
+        <div class="feat-icon"><i class="fas fa-warehouse"></i></div>
+        <div class="feat-text">
+          <strong>Inventory Control</strong>
+          <span>Department-wise stock management</span>
+        </div>
+      </div>
+      <div class="brand-feature">
+        <div class="feat-icon"><i class="fas fa-chart-line"></i></div>
+        <div class="feat-text">
+          <strong>Analytics &amp; Reports</strong>
+          <span>Consumption trends and KPI dashboards</span>
+        </div>
+      </div>
+
+      <div class="carousel-dots">
+        <button class="dot active" onclick="goSlide(0)" id="dot0"></button>
+        <button class="dot" onclick="goSlide(1)" id="dot1"></button>
+        <button class="dot" onclick="goSlide(2)" id="dot2"></button>
+      </div>
     </div>
 
   </div>

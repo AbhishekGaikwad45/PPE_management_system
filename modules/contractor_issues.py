@@ -27,38 +27,50 @@ def index():
     role = session.get("role")
     is_admin = role in ["Admin", "Super Admin"]
 
+    # Auto-sync contractors from active employees into contractors table if missing
+    c.execute("""
+        INSERT INTO contractors (name)
+        SELECT DISTINCT TRIM(e.contractor)
+        FROM employees e
+        WHERE e.contractor IS NOT NULL AND TRIM(e.contractor) <> ''
+          AND NOT EXISTS (
+              SELECT 1 FROM contractors c WHERE UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
+          )
+    """)
+    conn.commit()
+
     if is_admin:
         c.execute("""
             SELECT DISTINCT
-                COALESCE(c.id, 0) AS id,
-                e.contractor AS name,
+                c.id,
+                c.name,
                 COALESCE(c.contact, '') AS contact,
                 e.department
             FROM employees e
-            LEFT JOIN contractors c
+            JOIN contractors c
                 ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
             WHERE
                 e.status = 'Active'
                 AND e.contractor IS NOT NULL
                 AND TRIM(e.contractor) <> ''
-            ORDER BY e.department, e.contractor
+            ORDER BY e.department, c.name
         """)
     else:
         c.execute("""
             SELECT DISTINCT
-                COALESCE(c.id, 0) AS id,
-                e.contractor AS name,
+                c.id,
+                c.name,
                 COALESCE(c.contact, '') AS contact,
                 e.department
             FROM employees e
-            LEFT JOIN contractors c
+            JOIN contractors c
                 ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
             WHERE
                 e.status = 'Active'
-                AND e.department = %s
+                AND LOWER(TRIM(e.department)) = LOWER(TRIM(%s))
                 AND e.contractor IS NOT NULL
                 AND TRIM(e.contractor) <> ''
-            ORDER BY e.contractor
+            ORDER BY c.name
         """, (dept,))
 
     contractors_raw = fetchall(c)
@@ -67,7 +79,7 @@ def index():
         {
             "id": ct["id"],
             "name": ct["name"],
-            "label": f"{ct['name']} ({ct['department']})"
+            "label": f"{ct['name']} ({ct['department']})" if is_admin else ct["name"]
         }
         for ct in contractors_raw
     ]
@@ -78,9 +90,9 @@ def index():
         e.id,
         e.emp_code,
         e.name,
-        COALESCE(c.id,0) AS contractor_id
+        c.id AS contractor_id
     FROM employees e
-    LEFT JOIN contractors c
+    JOIN contractors c
         ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
     WHERE
         e.status='Active'
@@ -90,7 +102,7 @@ def index():
 
     params = []
 
-    if not is_admin:
+    if not is_admin and dept:
         query += " AND LOWER(TRIM(e.department)) = LOWER(TRIM(%s))"
         params.append(dept)
 
@@ -131,7 +143,7 @@ def index():
             cir.remarks,
 
             ct.name AS contractor_name,
-            ct.department,
+            e.department,
 
             e.id AS emp_id,
             e.emp_code,
@@ -154,8 +166,8 @@ def index():
         WHERE 1=1
         """
     params = []
-    if not is_admin:
-        query += " AND e.department=%s"
+    if not is_admin and dept:
+        query += " AND LOWER(TRIM(e.department)) = LOWER(TRIM(%s))"
         params.append(dept)
     if from_date:
         query += " AND cir.issue_date >= %s"; params.append(from_date)
@@ -167,10 +179,6 @@ def index():
     issues = fetchall(c)
     conn.close()
 
-    # ← FIXED — has_permission() takes ONE argument ('can_create' / 'can_edit'
-    # / 'can_delete'), not (module, action). The old two-arg call silently
-    # always evaluated wrong, which is why Add/Edit/Delete stayed visible
-    # even for roles with no permission (same bug as modules/issues.py).
     can_create = has_permission('can_create')
     can_edit   = has_permission('can_edit')
     can_delete = has_permission('can_delete')
@@ -186,7 +194,7 @@ def add():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
 
-    if not has_permission('can_create'):                        # ← FIXED
+    if not has_permission('can_create'):
         flash("You don't have permission to issue PPE to contractors.", "danger")
         return redirect(url_for("contractor_issues.index"))
 
@@ -208,31 +216,18 @@ def add():
 
         role = session.get("role")
         dept = session.get("department")
-        print("=" * 50)
-        print("Session Department :", repr(dept))
-        print("Selected Contractor ID :", contractor_id)
+        is_admin = role in ["Admin", "Super Admin"]
 
-        if role not in ["Admin", "Super Admin"]:
-            c.execute("""
-                SELECT DISTINCT department
-                FROM employees
-                WHERE contractor = (
-                    SELECT name
-                    FROM contractors
-                    WHERE id=%s
-                )
-                LIMIT 1
-            """, (contractor_id,))
-
-            ct = fetchone(c)
-            print("Contractor Row :", ct)
-            print("=" * 50)
-            session_dept = (dept or "").strip().lower()
-            contractor_dept = (ct["department"] or "").strip().lower() if ct else ""
-            if not ct or contractor_dept != session_dept:
-                conn.close()
-                flash("You can only issue PPE to contractors in your department.", "danger")
-                return redirect(url_for("contractor_issues.index"))
+        # Department validation: for non-admins, ensure all selected employees belong to the logged-in department
+        if not is_admin and dept:
+            session_dept = dept.strip().lower()
+            for emp_id in employee_ids:
+                c.execute("SELECT department FROM employees WHERE id=%s", (emp_id,))
+                emp_row = fetchone(c)
+                if not emp_row or (emp_row["department"] or "").strip().lower() != session_dept:
+                    conn.close()
+                    flash("You can only issue PPE to employees in your department.", "danger")
+                    return redirect(url_for("contractor_issues.index"))
 
         for emp_id in employee_ids:
             for item_id in item_ids:
@@ -629,29 +624,37 @@ def import_excel():
             )
             ctr_row = fetchone(c)
             if not ctr_row:
-                skipped += 1
-                errors.append(
-                    f"Row {row_num}: contractor '{ctr_name}' not found in "
-                    f"contractors table -- skipped."
+                c.execute(
+                    "INSERT INTO contractors (name) VALUES (%s) RETURNING id",
+                    (ctr_name,)
                 )
-                continue
+                ctr_row = fetchone(c)
             contractor_id = ctr_row['id']
 
             # -- Resolve item ----------------------------------------------
-            c.execute("SELECT id FROM items WHERE LOWER(item_name)=LOWER(%s)", (item_name,))
+            c.execute("SELECT id FROM items WHERE LOWER(TRIM(item_name))=LOWER(TRIM(%s))", (item_name,))
             item = fetchone(c)
             if not item:
                 skipped += 1
                 errors.append(f"Row {row_num}: item '{item_name}' not found -- skipped.")
                 continue
 
-            # -- Duplicate check ------------------------------------------
+            # -- Duplicate check: skip if all fields match an existing record ------------
             c.execute("""
                 SELECT id FROM contractor_issue_register
-                WHERE employee_id=%s AND item_id=%s AND qty=%s
-                  AND issue_date=%s AND returnable=%s
+                WHERE employee_id=%s
+                  AND contractor_id=%s
+                  AND item_id=%s
+                  AND qty=%s
+                  AND issue_date=%s
+                  AND returnable=%s
+                  AND COALESCE(return_due_date, '') = COALESCE(%s, '')
+                  AND COALESCE(remarks, '') = COALESCE(%s, '')
                 LIMIT 1
-            """, (emp['id'], item['id'], qty, issue_date, returnable))
+            """, (
+                emp['id'], contractor_id, item['id'], qty, issue_date, returnable,
+                return_due or '', remarks or ''
+            ))
             if fetchone(c):
                 duplicates += 1
                 continue

@@ -90,9 +90,16 @@ def index():
             WHERE ir.issue_date=%s
             AND e.department IS NOT NULL AND TRIM(e.department) <> ''
             GROUP BY e.department
-            ORDER BY total DESC
         """, (today,))
-        issued_today_by_dept = fetchall(c)
+        _raw = fetchall(c)
+        _m = {}
+        for row in _raw:
+            d = _display_dept_name(row["department"] or "")
+            _m[d] = _m.get(d, 0) + (row["total"] or 0)
+        issued_today_by_dept = sorted(
+            [{"department": k, "total": v} for k, v in _m.items()],
+            key=lambda x: -x["total"]
+        )
     else:
         issued_today_by_dept = []
 
@@ -126,9 +133,16 @@ def index():
             WHERE ir.issue_date LIKE %s
             AND e.department IS NOT NULL AND TRIM(e.department) <> ''
             GROUP BY e.department
-            ORDER BY total DESC
         """, (month + '%',))
-        issued_month_by_dept = fetchall(c)
+        _raw = fetchall(c)
+        _m = {}
+        for row in _raw:
+            d = _display_dept_name(row["department"] or "")
+            _m[d] = _m.get(d, 0) + (row["total"] or 0)
+        issued_month_by_dept = sorted(
+            [{"department": k, "total": v} for k, v in _m.items()],
+            key=lambda x: -x["total"]
+        )
     else:
         issued_month_by_dept = []
 
@@ -184,9 +198,16 @@ def index():
             AND i.min_stock > 0
             AND e.department IS NOT NULL AND TRIM(e.department) <> ''
             GROUP BY e.department
-            ORDER BY total DESC
         """)
-        low_stock_by_dept = fetchall(c)
+        _raw = fetchall(c)
+        _m = {}
+        for row in _raw:
+            d = _display_dept_name(row["department"] or "")
+            _m[d] = _m.get(d, 0) + (row["total"] or 0)
+        low_stock_by_dept = sorted(
+            [{"department": k, "total": v} for k, v in _m.items()],
+            key=lambda x: -x["total"]
+        )
     else:
         low_stock_by_dept = []
 
@@ -332,7 +353,26 @@ def index():
             ORDER BY d.department
         """)
 
-        stock_by_dept = fetchall(c)
+        raw_stock_by_dept = fetchall(c)
+
+        # ── Merge combined-group variants ──────────────────────────────────
+        # Raw department names in the DB (e.g. "Marine", "Operations", "HR",
+        # "Admin") must be collapsed into their canonical display names
+        # (e.g. "Marine / Operations", "Administration / HR Admin") before
+        # we compute totals or show per-department stock on the dashboard.
+        # Without this step, receipts added under "Operations" are NOT
+        # deducted from issues under "Marine", causing negative net-stock
+        # for individual variant rows.
+        _merged = {}
+        for row in raw_stock_by_dept:
+            raw = row["department"] or ""
+            display = _display_dept_name(raw)
+            _merged[display] = _merged.get(display, 0) + (row["net_stock"] or 0)
+
+        stock_by_dept = [
+            {"department": dept, "net_stock": net}
+            for dept, net in sorted(_merged.items())
+        ]
 
     else:
         stock_by_dept = []
@@ -435,8 +475,16 @@ def index():
             JOIN employees e ON ir.employee_id=e.id
             WHERE e.department IS NOT NULL
             GROUP BY e.department
-            ORDER BY total DESC
         """)
+        _raw = fetchall(c)
+        _m = {}
+        for row in _raw:
+            d = _display_dept_name(row["department"] or "")
+            _m[d] = _m.get(d, 0) + (row["total"] or 0)
+        dept_consumption = sorted(
+            [{"department": k, "total": v} for k, v in _m.items()],
+            key=lambda x: -x["total"]
+        )
     else:
         c.execute("""
             SELECT e.department,
@@ -446,8 +494,7 @@ def index():
             WHERE LOWER(e.department) = ANY(%s)
             GROUP BY e.department
         """, (dept_variants,))
-
-    dept_consumption = fetchall(c)
+        dept_consumption = fetchall(c)
 
     # ==========================
     # Monthly Trend
