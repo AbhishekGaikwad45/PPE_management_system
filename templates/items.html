@@ -27,12 +27,30 @@
 {% endif %}
 
 <div class="card">
-  <div class="card-header"><i class="fas fa-boxes me-2"></i>All Items ({{ items|length }})</div>
+  <div class="card-header">
+    <i class="fas fa-boxes me-2"></i>
+    {% if is_admin %}
+    All Items ({{ items|length }})
+    {% else %}
+    Items — Your Department ({{ items|length }})
+    {% endif %}
+  </div>
   <div class="card-body p-0">
     <div class="p-3"><input type="text" id="searchInput" class="form-control" placeholder="Search items..."></div>
     <div class="table-responsive">
       <table class="table table-hover mb-0" id="itemTable">
-        <thead><tr><th>Code</th><th>Item Name</th><th>Category</th><th>Unit</th><th>Stock</th><th>Min Stock</th><th>Expiry</th><th>Calibration</th><th>Action</th></tr></thead>
+        <thead><tr>
+          <th>Code</th>
+          <th>Item Name</th>
+          <th>Category</th>
+          <th>Unit</th>
+          <th>Stock</th>
+          <th>Min Stock</th>
+          <th>Expiry</th>
+          <th>Calibration</th>
+          {% if is_admin %}<th>Added By</th>{% endif %}
+          <th>Action</th>
+        </tr></thead>
         <tbody>
           {% for item in items %}
           <tr>
@@ -48,6 +66,15 @@
             <td>{{ item.min_stock }}</td>
             <td>{% if item.has_expiry %}<i class="fas fa-check text-success"></i>{% else %}<i class="fas fa-times text-muted"></i>{% endif %}</td>
             <td>{% if item.has_calibration %}<i class="fas fa-check text-success"></i>{% else %}<i class="fas fa-times text-muted"></i>{% endif %}</td>
+            {% if is_admin %}
+            <td>
+              {% if item.added_by_department %}
+              <span class="badge bg-secondary">{{ item.added_by_department }}</span>
+              {% else %}
+              <span class="text-muted small">Global</span>
+              {% endif %}
+            </td>
+            {% endif %}
             <td>
               {% if can_edit %}
               <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editModal{{ item.id }}">

@@ -12,27 +12,51 @@ def index():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
     conn = get_db(); c = conn.cursor()
-    c.execute("SELECT * FROM items ORDER BY category, item_name")
+
+    role = session.get('role')
+    dept = session.get('department')
+    is_admin = role in ['Admin', 'Super Admin']
+
+    if is_admin:
+        # Admin sees every item regardless of which department added it
+        c.execute("SELECT * FROM items ORDER BY category, item_name")
+    else:
+        # Department login sees only items their own department added.
+        # Items where added_by_department IS NULL are legacy/global items
+        # (inserted before this feature) and are shown to everyone.
+        c.execute("""
+            SELECT * FROM items
+            WHERE added_by_department = %s
+               OR added_by_department IS NULL
+            ORDER BY category, item_name
+        """, (dept,))
+
     items = fetchall(c)
     conn.close()
 
-    # ← ADD — pass permission flags to the template so Add/Edit/Delete
-    # buttons only render when the logged-in user's role/department is
-    # actually allowed to perform that action.
     can_create = has_permission('can_create')
     can_edit = has_permission('can_edit')
     can_delete = has_permission('can_delete')
 
     return render_template('items.html', items=items,
-                            can_create=can_create, can_edit=can_edit, can_delete=can_delete)
+                            can_create=can_create, can_edit=can_edit, can_delete=can_delete,
+                            is_admin=is_admin)
 
 @items_bp.route('/items/add', methods=['POST'])
 def add():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
-    if not has_permission('can_create'):                       # ← ADD
+    if not has_permission('can_create'):
         flash('You do not have permission to add items.', 'danger')
         return redirect(url_for('items.index'))
+
+    role = session.get('role')
+    dept = session.get('department')
+    is_admin = role in ['Admin', 'Super Admin']
+    # Admin-added items have NULL added_by_department (visible to all);
+    # department-added items are scoped to that department.
+    added_by_dept = None if is_admin else dept
+
     conn = get_db(); c = conn.cursor()
     try:
         item_code = request.form['item_code'].strip().upper()
@@ -41,8 +65,9 @@ def add():
         c.execute(
             """
             INSERT INTO items
-            (item_code,item_name,category,unit,min_stock,reorder_level,has_expiry,has_calibration)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            (item_code,item_name,category,unit,min_stock,reorder_level,
+             has_expiry,has_calibration,added_by_department)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 item_code,
@@ -52,7 +77,8 @@ def add():
                 int(request.form.get('min_stock', 0)),
                 int(request.form.get('reorder_level', 0)),
                 1 if request.form.get('has_expiry') else 0,
-                1 if request.form.get('has_calibration') else 0
+                1 if request.form.get('has_calibration') else 0,
+                added_by_dept
             )
         )
         conn.commit()
@@ -170,9 +196,15 @@ def export_excel():
 def import_excel():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
-    if not has_permission('can_create'):                        # ← ADD — import creates/updates items, same gate as Add
+    if not has_permission('can_create'):
         flash('You do not have permission to import items.', 'danger')
         return redirect(url_for('items.index'))
+
+    role = session.get('role')
+    dept = session.get('department')
+    is_admin = role in ['Admin', 'Super Admin']
+    # Admin-imported items are global (NULL); dept-imported items are scoped.
+    added_by_dept = None if is_admin else dept
 
     if 'excel_file' not in request.files or request.files['excel_file'].filename == '':
         flash('No file selected.', 'danger')
@@ -304,11 +336,13 @@ def import_excel():
                         error_log.append(f"Row {row_idx}: new item '{item_code}' missing Item Name — skipped")
                         continue
                     c.execute("""
-                        INSERT INTO items (item_code, item_name, category, unit, min_stock, reorder_level, has_expiry, has_calibration)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                        INSERT INTO items
+                        (item_code, item_name, category, unit, min_stock, reorder_level,
+                         has_expiry, has_calibration, added_by_department)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """, (item_code, incoming['item_name'], incoming['category'], incoming['unit'],
                           incoming['min_stock'], incoming['reorder_level'],
-                          incoming['has_expiry'], incoming['has_calibration']))
+                          incoming['has_expiry'], incoming['has_calibration'], added_by_dept))
                     added += 1
                 else:
                     changed_fields = {}

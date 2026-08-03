@@ -41,7 +41,16 @@ def index():
     employees_raw = fetchall(c)
     employees = [{"id": e["id"], "label": f"{e['emp_code']} - {e['name']} ({e['department']})", "badge": f"{e['emp_code']} — {e['name']}"} for e in employees_raw]
 
-    c.execute("SELECT id, item_name, stock, unit FROM items ORDER BY item_name")
+    if is_admin:
+        c.execute("SELECT id, item_name, stock, unit FROM items ORDER BY item_name")
+    else:
+        # Show only items added by this department OR global items (NULL = admin-added)
+        c.execute("""
+            SELECT id, item_name, stock, unit FROM items
+            WHERE added_by_department = %s
+               OR added_by_department IS NULL
+            ORDER BY item_name
+        """, (dept,))
     items_raw = fetchall(c)
     items = [{"id": i["id"], "stock": i["stock"], "unit": i["unit"], "label": f"{i['item_name']} [Stock: {i['stock']} {i['unit']}]", "badge": f"{i['item_name']} [{i['stock']} {i['unit']}]"} for i in items_raw]
 
