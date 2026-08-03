@@ -41,18 +41,55 @@ def index():
     employees_raw = fetchall(c)
     employees = [{"id": e["id"], "label": f"{e['emp_code']} - {e['name']} ({e['department']})", "badge": f"{e['emp_code']} — {e['name']}"} for e in employees_raw]
 
-    if is_admin:
+    if is_admin or not dept_variants:
         c.execute("SELECT id, item_name, stock, unit FROM items ORDER BY item_name")
+        items_raw = fetchall(c)
+        items = [{"id": i["id"], "stock": i["stock"], "unit": i["unit"], "label": f"{i['item_name']} [Stock: {i['stock']} {i['unit']}]", "badge": f"{i['item_name']} [{i['stock']} {i['unit']}]"} for i in items_raw]
     else:
-        # Show only items added by this department OR global items (NULL = admin-added)
+        # Calculate real department-specific stock balance for each item
         c.execute("""
-            SELECT id, item_name, stock, unit FROM items
-            WHERE added_by_department = %s
-               OR added_by_department IS NULL
-            ORDER BY item_name
-        """, (dept,))
-    items_raw = fetchall(c)
-    items = [{"id": i["id"], "stock": i["stock"], "unit": i["unit"], "label": f"{i['item_name']} [Stock: {i['stock']} {i['unit']}]", "badge": f"{i['item_name']} [{i['stock']} {i['unit']}]"} for i in items_raw]
+            SELECT 
+                i.id, i.item_name, i.unit, i.added_by_department,
+                (
+                    COALESCE((
+                        SELECT SUM(r.qty) 
+                        FROM stock_receipts r 
+                        WHERE r.item_id = i.id AND LOWER(r.department) = ANY(%s)
+                    ), 0)
+                    -
+                    COALESCE((
+                        SELECT SUM(ir.qty) 
+                        FROM issue_register ir 
+                        WHERE ir.item_id = i.id AND LOWER(ir.department) = ANY(%s)
+                    ), 0)
+                    +
+                    COALESCE((
+                        SELECT SUM(rr.qty_no) 
+                        FROM return_register rr 
+                        JOIN issue_register ir2 ON ir2.id = rr.issue_id 
+                        WHERE rr.item_id = i.id AND LOWER(ir2.department) = ANY(%s)
+                    ), 0)
+                ) AS dept_stock
+            FROM items i
+            ORDER BY i.item_name
+        """, (dept_variants, dept_variants, dept_variants))
+        items_raw = fetchall(c)
+
+        items = []
+        dept_lower = (dept or '').strip().lower()
+        for i in items_raw:
+            d_stock = i["dept_stock"]
+            added_by = (i["added_by_department"] or '').strip().lower()
+
+            # Show item if added by this department, or has department stock > 0, or is global (added_by == '')
+            if added_by == dept_lower or d_stock > 0 or added_by == '':
+                items.append({
+                    "id": i["id"],
+                    "stock": d_stock,
+                    "unit": i["unit"],
+                    "label": f"{i['item_name']} [Stock: {d_stock} {i['unit']}]",
+                    "badge": f"{i['item_name']} [{d_stock} {i['unit']}]"
+                })
 
     query = """
         SELECT ir.*, e.name as emp_name, e.emp_code, e.department, i.item_name, i.unit

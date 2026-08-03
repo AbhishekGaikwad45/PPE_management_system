@@ -44,7 +44,6 @@
           <th>Item Name</th>
           <th>Category</th>
           <th>Unit</th>
-          <th>Stock</th>
           <th>Min Stock</th>
           <th>Expiry</th>
           <th>Calibration</th>
@@ -58,11 +57,6 @@
             <td><strong>{{ item.item_name }}</strong></td>
             <td><span class="badge {{ 'badge-ppe' if item.category=='PPE' else 'badge-equip' }}">{{ item.category }}</span></td>
             <td>{{ item.unit }}</td>
-            <td>
-              <span class="badge {{ 'bg-danger' if item.stock <= item.min_stock and item.min_stock > 0 else 'bg-success' }}">
-                {{ item.stock }}
-              </span>
-            </td>
             <td>{{ item.min_stock }}</td>
             <td>{% if item.has_expiry %}<i class="fas fa-check text-success"></i>{% else %}<i class="fas fa-times text-muted"></i>{% endif %}</td>
             <td>{% if item.has_calibration %}<i class="fas fa-check text-success"></i>{% else %}<i class="fas fa-times text-muted"></i>{% endif %}</td>

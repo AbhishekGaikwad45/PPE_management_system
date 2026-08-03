@@ -14,33 +14,21 @@ def index():
     conn = get_db(); c = conn.cursor()
 
     role = session.get('role')
-    dept = session.get('department')
     is_admin = role in ['Admin', 'Super Admin']
 
-    if is_admin:
-        # Admin sees every item regardless of which department added it
-        c.execute("SELECT * FROM items ORDER BY category, item_name")
-    else:
-        # Department login sees only items their own department added.
-        # Items where added_by_department IS NULL are legacy/global items
-        # (inserted before this feature) and are shown to everyone.
-        c.execute("""
-            SELECT * FROM items
-            WHERE added_by_department = %s
-               OR added_by_department IS NULL
-            ORDER BY category, item_name
-        """, (dept,))
-
+    # All users (admin and department) see the full item catalogue.
+    c.execute("SELECT * FROM items ORDER BY category, item_name")
     items = fetchall(c)
     conn.close()
 
     can_create = has_permission('can_create')
-    can_edit = has_permission('can_edit')
+    can_edit   = has_permission('can_edit')
     can_delete = has_permission('can_delete')
 
     return render_template('items.html', items=items,
                             can_create=can_create, can_edit=can_edit, can_delete=can_delete,
                             is_admin=is_admin)
+
 
 @items_bp.route('/items/add', methods=['POST'])
 def add():
