@@ -735,14 +735,54 @@ def edit_contractor(contractor_id):
 def delete_contractor(contractor_id):
     if 'user' not in session:
         return redirect(url_for('auth.login'))
-    if not has_permission('can_delete'):                        # ← ADD
+    if not has_permission('can_delete'):
         flash('You do not have permission to delete contractors.', 'danger')
         return redirect(url_for('employees.contractors'))
     conn = get_db(); c = conn.cursor()
     try:
+        # 1. Fetch the contractor name before deleting
+        c.execute("SELECT name FROM contractors WHERE id=%s", (contractor_id,))
+        ctr = fetchone(c)
+
+        if ctr:
+            ctr_name = ctr['name']
+
+            # 2. Write a tombstone to deleted_contractors so the sync
+            #    will never re-insert this contractor again.
+            c.execute("""
+                INSERT INTO deleted_contractors (name, deleted_by)
+                VALUES (%s, %s)
+                ON CONFLICT (name) DO UPDATE
+                    SET deleted_by=EXCLUDED.deleted_by, deleted_at=CURRENT_TIMESTAMP
+            """, (ctr_name, session.get('user')))
+
+            # 3. Tombstone all employees that belong to this contractor
+            #    in deleted_employees so the sync won't re-insert them either.
+            c.execute("""
+                SELECT emp_code, name FROM employees
+                WHERE LOWER(TRIM(contractor)) = LOWER(TRIM(%s))
+            """, (ctr_name,))
+            emp_rows = fetchall(c)
+            for emp in emp_rows:
+                c.execute("""
+                    INSERT INTO deleted_employees (emp_code, name, deleted_by)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (emp_code) DO UPDATE
+                        SET name=EXCLUDED.name, deleted_by=EXCLUDED.deleted_by,
+                            deleted_at=CURRENT_TIMESTAMP
+                """, (emp['emp_code'], emp['name'], session.get('user')))
+
+            # 4. Mark those employees as Inactive so they vanish from
+            #    the UI immediately (without hard-deleting issue history).
+            c.execute("""
+                UPDATE employees SET status='Inactive'
+                WHERE LOWER(TRIM(contractor)) = LOWER(TRIM(%s))
+            """, (ctr_name,))
+
+        # 5. Delete the contractor record itself.
         c.execute("DELETE FROM contractors WHERE id=%s", (contractor_id,))
         conn.commit()
-        flash('Contractor deleted.', 'success')
+        flash('Contractor and their employees have been removed and will not be re-synced.', 'success')
     except Exception as e:
         conn.rollback(); flash(f'Error: {e}', 'danger')
     conn.close()

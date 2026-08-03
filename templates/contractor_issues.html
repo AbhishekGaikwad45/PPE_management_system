@@ -15,7 +15,22 @@
     z-index: 9999;
   }
 
-
+  .ctr-import-zone {
+    border: 2px dashed #1A3A5C;
+    border-radius: 10px;
+    padding: 30px;
+    text-align: center;
+    background: #f8fafc;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .ctr-import-zone:hover,
+  .ctr-import-zone.dragover {
+    background: #eef2ff;
+    border-color: #2563A8;
+  }
+  .ctr-import-zone i { font-size: 2.5rem; color: #1A3A5C; }
+  #ctrFileNameDisplay { margin-top: 10px; font-size: 13px; color: #2563A8; font-weight: 500; }
 </style>
 {% endblock %}
 
@@ -43,6 +58,9 @@
           <i class="fas fa-file-excel me-1"></i> Download Report
         </a>
         {% if can_create %}
+        <button type="button" class="btn btn-sm btn-outline-primary" id="openCtrImportBtn">
+          <i class="fas fa-file-upload me-1"></i> Import Excel
+        </button>
         <button type="button" class="btn btn-sm btn-jsw" data-bs-toggle="modal" data-bs-target="#addModal">
           <i class="fas fa-plus me-1"></i> Issue to Contractor
         </button>
@@ -303,6 +321,58 @@
 </div>
 {% endif %}
 
+{% if can_create %}
+<!-- ===== IMPORT EXCEL MODAL ===== -->
+<div class="modal fade" id="ctrImportExcelModal" tabindex="-1" aria-labelledby="ctrImportModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#1A3A5C; color:#fff;">
+        <h5 class="modal-title" id="ctrImportModalLabel">
+          <i class="fas fa-file-upload me-2"></i>Import Contractor Issues from Excel
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+
+      <form method="POST" action="{{ url_for('contractor_issues.import_excel') }}" enctype="multipart/form-data"
+        id="ctrImportForm">
+        <div class="modal-body">
+          <div class="alert alert-info mb-3">
+            <strong><i class="fas fa-info-circle me-1"></i>Expected Columns (any order):</strong>
+            <div class="mt-2 small">
+              <code>Issue Date &nbsp;|&nbsp; Emp Code &nbsp;|&nbsp; Name &nbsp;|&nbsp; Department &nbsp;|&nbsp;
+              Contractor &nbsp;|&nbsp; Item Name &nbsp;|&nbsp; Qty &nbsp;|&nbsp; Returnable &nbsp;|&nbsp;
+              Return Due Date &nbsp;|&nbsp; Remarks</code><br>
+              <span class="text-muted">Returnable: Yes / No (blank = No) &nbsp;&middot;&nbsp;
+              Dates: YYYY-MM-DD or Excel date cells</span>
+            </div>
+          </div>
+
+          <div class="ctr-import-zone" id="ctrDropZone">
+            <i class="fas fa-cloud-upload-alt d-block mb-2"></i>
+            <div class="fw-semibold">Click here to select your Excel file</div>
+            <div class="text-muted small mt-1">or drag &amp; drop — supports .xlsx and .xls</div>
+            <div id="ctrFileNameDisplay"></div>
+          </div>
+
+          <input type="file" name="excel_file" id="ctrExcelFileInput" class="d-none" accept=".xlsx,.xls">
+        </div>
+
+        <div class="modal-footer">
+          <a href="{{ url_for('contractor_issues.download_import_template') }}"
+            class="btn btn-outline-secondary me-auto" target="_blank">
+            <i class="fas fa-download me-1"></i> Download Template
+          </a>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success" id="ctrImportSubmitBtn" disabled>
+            <i class="fas fa-upload me-1"></i> Import Now
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block extra_js %}
@@ -528,5 +598,63 @@
       };
     });
   });
+
+  // ── Import Excel Modal ─────────────────────────────────────
+  var ctrImportModalEl = document.getElementById('ctrImportExcelModal');
+  if (ctrImportModalEl) {
+    var ctrImportModal   = new bootstrap.Modal(ctrImportModalEl);
+    var ctrFileInput     = document.getElementById('ctrExcelFileInput');
+    var ctrDropZone      = document.getElementById('ctrDropZone');
+    var ctrFileDisplay   = document.getElementById('ctrFileNameDisplay');
+    var ctrSubmitBtn     = document.getElementById('ctrImportSubmitBtn');
+    var ctrOpenBtn       = document.getElementById('openCtrImportBtn');
+
+    if (ctrOpenBtn) {
+      ctrOpenBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        ctrImportModal.show();
+      });
+    }
+
+    ctrDropZone.addEventListener('click', function () { ctrFileInput.click(); });
+
+    ctrFileInput.addEventListener('change', function () {
+      if (this.files && this.files.length > 0) { showCtrFile(this.files[0]); }
+    });
+
+    ctrDropZone.addEventListener('dragover', function (e) {
+      e.preventDefault(); this.classList.add('dragover');
+    });
+    ctrDropZone.addEventListener('dragleave', function () { this.classList.remove('dragover'); });
+    ctrDropZone.addEventListener('drop', function (e) {
+      e.preventDefault(); this.classList.remove('dragover');
+      var files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        var dt = new DataTransfer(); dt.items.add(files[0]);
+        ctrFileInput.files = dt.files;
+        showCtrFile(files[0]);
+      }
+    });
+
+    function showCtrFile(file) {
+      var ext = file.name.split('.').pop().toLowerCase();
+      if (ext !== 'xlsx' && ext !== 'xls') {
+        ctrFileDisplay.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle me-1"></i>Only .xlsx or .xls files allowed.</span>';
+        ctrSubmitBtn.disabled = true;
+        return;
+      }
+      ctrFileDisplay.innerHTML =
+        '<i class="fas fa-check-circle text-success me-1"></i>' +
+        '<strong>' + file.name + '</strong> (' + (file.size / 1024).toFixed(1) + ' KB)';
+      ctrSubmitBtn.disabled = false;
+    }
+
+    ctrImportModalEl.addEventListener('hidden.bs.modal', function () {
+      ctrFileInput.value = '';
+      ctrFileDisplay.innerHTML = '';
+      ctrSubmitBtn.disabled = true;
+      ctrDropZone.classList.remove('dragover');
+    });
+  }
 </script>
 {% endblock %}

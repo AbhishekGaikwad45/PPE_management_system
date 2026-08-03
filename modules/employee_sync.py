@@ -352,6 +352,14 @@ def _load_deleted_emp_codes(pg_cursor):
     return {row['emp_code'] for row in fetchall(pg_cursor)}
 
 
+def _load_deleted_contractor_names(pg_cursor):
+    """Contractor names an admin explicitly deleted from the app.
+    Neither the contractor record nor any of their employees should ever
+    be re-inserted by the sync."""
+    pg_cursor.execute("SELECT LOWER(TRIM(name)) FROM deleted_contractors")
+    return {row[0] for row in pg_cursor.fetchall()}
+
+
 def _normalize_department(raw_dept, dept_lookup, pg_cursor):
     """
     Resolve a raw SQL Server department string to the canonical name used in
@@ -446,6 +454,7 @@ def sync_employees():
     error_log = []
     dept_lookup = _load_department_lookup(pg_cursor)
     deleted_emp_codes = _load_deleted_emp_codes(pg_cursor)
+    deleted_contractor_names = _load_deleted_contractor_names(pg_cursor)  # ← NEW
 
     try:
         sql_cursor = sql_conn.cursor()
@@ -497,6 +506,12 @@ def sync_employees():
                 
 
                 if contractor:
+                    # If this contractor was explicitly deleted from the app,
+                    # skip both the contractor record AND this employee entirely.
+                    if contractor.lower().strip() in deleted_contractor_names:
+                        blocked_deleted += 1
+                        continue
+
                     pg_cursor.execute("SELECT id FROM contractors WHERE LOWER(name)=LOWER(%s)", (contractor,))
                     if fetchone(pg_cursor) is None:
                         pg_cursor.execute(

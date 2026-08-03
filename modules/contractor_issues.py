@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 from database.db import get_db, fetchall, fetchone
 from datetime import date
 import io
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from modules.user_admin import has_permission   # ← ADDED
@@ -459,4 +459,289 @@ def download():
         buf.getvalue(),
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         headers={'Content-Disposition': f'attachment; filename="{fname}"'},
+    )
+
+# ─────────────────────── IMPORT EXCEL ───────────────────────
+@contractor_issues_bp.route('/contractor-issues/import-excel', methods=['POST'])
+def import_excel():
+    """
+    Bulk-import contractor issue records from an uploaded Excel file.
+
+    Expected header row (any order, case-insensitive):
+        Issue Date | Emp Code | Name | Department | Contractor | Item Name |
+        Qty | Returnable | Return Due Date | Remarks
+
+    'Name' column is accepted but treated as informational only — the
+    employee is always resolved by Emp Code.
+    Returnable: Yes/No/1/0/True/False (blank = No).
+    """
+    if 'user' not in session:
+        return redirect(url_for('auth.login'))
+    if not has_permission('can_create'):
+        flash("You don't have permission to issue PPE/Equipment.", 'danger')
+        return redirect(url_for('contractor_issues.index'))
+
+    file = request.files.get('excel_file')
+    if not file or file.filename == '':
+        flash('Please choose an Excel file to import.', 'danger')
+        return redirect(url_for('contractor_issues.index'))
+
+    try:
+        wb = load_workbook(file, data_only=True)
+        ws = wb.active
+    except Exception as e:
+        flash(f'Could not read the Excel file: {e}', 'danger')
+        return redirect(url_for('contractor_issues.index'))
+
+    header_row = [
+        str(cell.value).strip().lower() if cell.value is not None else ''
+        for cell in ws[1]
+    ]
+    header_map = {h: idx for idx, h in enumerate(header_row) if h}
+
+    required_cols = ['issue date', 'emp code', 'department', 'contractor', 'item name', 'qty']
+    missing = [col for col in required_cols if col not in header_map]
+    if missing:
+        flash(
+            "Excel is missing required column(s): " + ", ".join(missing) + ". "
+            "Expected headers: Issue Date, Emp Code, Name, Department, Contractor, "
+            "Item Name, Qty, Returnable, Return Due Date, Remarks.",
+            'danger'
+        )
+        return redirect(url_for('contractor_issues.index'))
+
+    def _cell(row, col_name):
+        idx = header_map.get(col_name)
+        if idx is None or idx >= len(row):
+            return None
+        return row[idx].value
+
+    def _to_date_str(value):
+        if value is None or value == '':
+            return None
+        if hasattr(value, 'strftime'):
+            return value.strftime('%Y-%m-%d')
+        return str(value).strip()
+
+    role = session.get('role')
+    dept = session.get('department')
+    is_admin = role in ['Admin', 'Super Admin']
+
+    conn = get_db()
+    c = conn.cursor()
+    imported = 0
+    duplicates = 0
+    skipped = 0
+    errors = []
+
+    try:
+        for row_num, row in enumerate(ws.iter_rows(min_row=2), start=2):
+            emp_code       = _cell(row, 'emp code')
+            item_name      = _cell(row, 'item name')
+            raw_qty        = _cell(row, 'qty')
+            raw_issue_date = _cell(row, 'issue date')
+            raw_returnable = _cell(row, 'returnable')
+            raw_return_due = _cell(row, 'return due date')
+            raw_department = _cell(row, 'department')
+            raw_contractor = _cell(row, 'contractor')
+            remarks        = _cell(row, 'remarks') or ''
+
+            # Skip fully blank trailing rows silently
+            if not any([emp_code, item_name, raw_qty, raw_issue_date]):
+                continue
+
+            if not emp_code or not item_name or raw_qty in (None, '') or not raw_issue_date:
+                skipped += 1
+                errors.append(
+                    f"Row {row_num}: missing Issue Date / Emp Code / Item Name / Qty -- skipped."
+                )
+                continue
+
+            emp_code   = str(emp_code).strip()
+            department = str(raw_department or '').strip()
+            contractor = str(raw_contractor or '').strip()
+            item_name  = str(item_name).strip()
+
+            try:
+                qty = int(raw_qty)
+                if qty <= 0:
+                    raise ValueError()
+            except (ValueError, TypeError):
+                skipped += 1
+                errors.append(f"Row {row_num}: invalid Qty '{raw_qty}' -- skipped.")
+                continue
+
+            issue_date = _to_date_str(raw_issue_date)
+            returnable = 1 if str(raw_returnable or '').strip().lower() in ('yes', '1', 'true') else 0
+            return_due = _to_date_str(raw_return_due) if returnable else None
+
+            # -- Look up employee ----------------------------------------
+            c.execute("""
+                SELECT id, department, contractor
+                FROM employees
+                WHERE emp_code=%s AND status='Active'
+            """, (emp_code,))
+            emp = fetchone(c)
+            if not emp:
+                skipped += 1
+                errors.append(
+                    f"Row {row_num}: employee code '{emp_code}' not found "
+                    f"(or inactive) -- skipped."
+                )
+                continue
+
+            # -- Department access check for non-admins -------------------
+            if not is_admin:
+                session_dept = (dept or '').strip().lower()
+                emp_dept = (emp['department'] or '').strip().lower()
+                if emp_dept != session_dept:
+                    skipped += 1
+                    errors.append(
+                        f"Row {row_num}: employee '{emp_code}' is outside your "
+                        f"department -- skipped."
+                    )
+                    continue
+
+            # -- Contractor name validation --------------------------------
+            if contractor:
+                system_contractor = (emp['contractor'] or '').strip()
+                if system_contractor.lower() != contractor.lower():
+                    skipped += 1
+                    errors.append(
+                        f"Row {row_num}: contractor mismatch "
+                        f"(Excel: {contractor}, System: {system_contractor}) -- skipped."
+                    )
+                    continue
+
+            # -- Resolve contractor_id ------------------------------------
+            ctr_name = (emp['contractor'] or contractor).strip()
+            if not ctr_name:
+                skipped += 1
+                errors.append(
+                    f"Row {row_num}: employee '{emp_code}' has no contractor "
+                    f"assigned -- skipped."
+                )
+                continue
+
+            c.execute(
+                "SELECT id FROM contractors WHERE LOWER(TRIM(name))=LOWER(TRIM(%s))",
+                (ctr_name,)
+            )
+            ctr_row = fetchone(c)
+            if not ctr_row:
+                skipped += 1
+                errors.append(
+                    f"Row {row_num}: contractor '{ctr_name}' not found in "
+                    f"contractors table -- skipped."
+                )
+                continue
+            contractor_id = ctr_row['id']
+
+            # -- Resolve item ----------------------------------------------
+            c.execute("SELECT id FROM items WHERE LOWER(item_name)=LOWER(%s)", (item_name,))
+            item = fetchone(c)
+            if not item:
+                skipped += 1
+                errors.append(f"Row {row_num}: item '{item_name}' not found -- skipped.")
+                continue
+
+            # -- Duplicate check ------------------------------------------
+            c.execute("""
+                SELECT id FROM contractor_issue_register
+                WHERE employee_id=%s AND item_id=%s AND qty=%s
+                  AND issue_date=%s AND returnable=%s
+                LIMIT 1
+            """, (emp['id'], item['id'], qty, issue_date, returnable))
+            if fetchone(c):
+                duplicates += 1
+                continue
+
+            # -- Insert ---------------------------------------------------
+            c.execute("""
+                INSERT INTO contractor_issue_register
+                (issue_date, contractor_id, employee_id, item_id, qty,
+                 issued_by, returnable, return_due_date, status, remarks)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                issue_date, contractor_id, emp['id'], item['id'], qty,
+                session['full_name'], returnable, return_due, 'Issued', remarks
+            ))
+            conn.commit()
+            imported += 1
+
+    except Exception as e:
+        conn.rollback()
+        flash(f'Import failed partway through: {e}', 'danger')
+    finally:
+        conn.close()
+
+    flash(
+        f'Import complete: {imported} new record(s) issued, '
+        f'{duplicates} duplicate(s) skipped (already existed), '
+        f'{skipped} row(s) skipped due to errors.',
+        'success' if imported else 'warning'
+    )
+    if errors:
+        shown = errors[:15]
+        extra = f' and {len(errors) - 15} more row(s) with issues.' if len(errors) > 15 else ''
+        flash('Details: ' + ' | '.join(shown) + extra, 'warning')
+
+    return redirect(url_for('contractor_issues.index'))
+
+
+# ─────────────────────── IMPORT TEMPLATE DOWNLOAD ───────────────────────
+@contractor_issues_bp.route('/contractor-issues/import-template')
+def download_import_template():
+    """Returns a blank Excel template with the correct column headers and
+    one example row so users know the expected format."""
+    if 'user' not in session:
+        return redirect(url_for('auth.login'))
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Contractor Issue Import'
+
+    headers = [
+        'Issue Date', 'Emp Code', 'Name', 'Department', 'Contractor',
+        'Item Name', 'Qty', 'Returnable', 'Return Due Date', 'Remarks'
+    ]
+    col_widths = [14, 14, 28, 20, 28, 24, 8, 12, 16, 40]
+
+    hdr_font  = Font(bold=True, color='FFFFFF', size=11)
+    hdr_fill  = PatternFill('solid', fgColor='1A3A5C')
+    hdr_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+    for col_idx, (h, w) in enumerate(zip(headers, col_widths), start=1):
+        cell = ws.cell(1, col_idx, h)
+        cell.font      = hdr_font
+        cell.fill      = hdr_fill
+        cell.alignment = hdr_align
+        cell.border    = _border
+        ws.column_dimensions[get_column_letter(col_idx)].width = w
+
+    ws.row_dimensions[1].height = 22
+
+    # One example row so users know what format is expected
+    example = [
+        '2026-08-01', 'CIPD003680', 'AAKASH CHANDRAKANT PATIL',
+        'Operations', 'R J Enterprises', 'Helmet',
+        2, 'Yes', '2026-09-01', 'Site work'
+    ]
+    eg_align = Alignment(horizontal='left', vertical='center')
+    eg_fill  = PatternFill('solid', fgColor='EEF2FF')
+    for col_idx, val in enumerate(example, start=1):
+        cell = ws.cell(2, col_idx, val)
+        cell.alignment = eg_align
+        cell.fill      = eg_fill
+        cell.border    = _border
+
+    ws.freeze_panes = 'A2'
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(
+        buf.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': 'attachment; filename="contractor_issue_import_template.xlsx"'},
     )
