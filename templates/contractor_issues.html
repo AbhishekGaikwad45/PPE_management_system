@@ -62,7 +62,7 @@
           <i class="fas fa-file-upload me-1"></i> Import Excel
         </button>
         <button type="button" class="btn btn-sm btn-jsw" data-bs-toggle="modal" data-bs-target="#addModal">
-          <i class="fas fa-plus me-1"></i> Issue to Contractor
+          <i class="fas fa-plus me-1"></i> Issue From Contractor
         </button>
         {% endif %}
       </div>
@@ -93,7 +93,9 @@
             <th>Status</th>
             <th>Returnable</th>
             <th>Return Due</th>
+            {% if session.get('role') in ['Admin', 'Super Admin'] %}
             <th>Issued By</th>
+            {% endif %}
             <th>Remarks</th>
             <th>Action</th>
           </tr>
@@ -115,26 +117,30 @@
             </td>
             <td>{{ 'Yes' if r.returnable else 'No' }}</td>
             <td>{{ r.return_due_date or '-' }}</td>
+            {% if session.get('role') in ['Admin', 'Super Admin'] %}
             <td>{{ r.issued_by or '-' }}</td>
+            {% endif %}
             <td>{{ r.remarks or '-' }}</td>
             <td>
-              {% if can_edit %}
-              <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
-                data-bs-target="#editModal{{ r.id }}">
-                <i class="fas fa-edit"></i>
-              </button>
-              {% endif %}
-              {% if can_delete %}
-              <form method="POST" action="{{ url_for('contractor_issues.delete', id=r.id) }}" class="d-inline"
-                onsubmit="return confirm('Delete this issue record? Stock will be restored.');">
-                <button type="submit" class="btn btn-sm btn-outline-danger">
-                  <i class="fas fa-trash"></i>
+              <div class="d-flex gap-2">
+                {% if can_edit %}
+                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                  data-bs-target="#editModal{{ r.id }}">
+                  <i class="fas fa-edit"></i>
                 </button>
-              </form>
-              {% endif %}
-              {% if not can_edit and not can_delete %}
-              <span class="text-muted small">View only</span>
-              {% endif %}
+                {% endif %}
+                {% if can_delete %}
+                <form method="POST" action="{{ url_for('contractor_issues.delete', id=r.id) }}" class="d-inline"
+                  onsubmit="return confirm('Delete this issue record? Stock will be restored.');">
+                  <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </form>
+                {% endif %}
+                {% if not can_edit and not can_delete %}
+                <span class="text-muted small">View only</span>
+                {% endif %}
+              </div>
             </td>
           </tr>
 
@@ -229,7 +235,7 @@
 
           {% else %}
           <tr>
-            <td colspan="13" class="text-center text-muted py-4">No contractor issue records yet.</td>
+            <td colspan="{% if session.get('role') in ['Admin', 'Super Admin'] %}13{% else %}12{% endif %}" class="text-center text-muted py-4">No contractor issue records yet.</td>
           </tr>
           {% endfor %}
         </tbody>

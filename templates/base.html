@@ -581,13 +581,18 @@
     }
 
     /* Tables (Attractive light weight style requested by user) */
+    .table-responsive {
+      max-height: 65vh;
+      overflow-y: auto;
+    }
+    
     .table, .employee-table-wrapper table {
       border-collapse: separate !important;
       border-spacing: 0 !important;
       border: 1px solid rgba(226, 232, 240, 0.8) !important;
       border-radius: var(--radius-md) !important;
-      overflow: hidden !important;
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02) !important;
+      margin-bottom: 0 !important;
     }
     
     .table thead th,
@@ -601,6 +606,18 @@
       padding: 14px 16px !important;
       letter-spacing: 0.5px !important;
       border-bottom: 2px solid #e2e8f0 !important;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .table thead th:first-child,
+    .employee-table-wrapper thead th:first-child {
+      border-top-left-radius: calc(var(--radius-md) - 1px);
+    }
+    .table thead th:last-child,
+    .employee-table-wrapper thead th:last-child {
+      border-top-right-radius: calc(var(--radius-md) - 1px);
     }
 
     .table tbody td,

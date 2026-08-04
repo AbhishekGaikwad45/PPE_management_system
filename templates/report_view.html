@@ -1,6 +1,23 @@
 {% extends 'base.html' %}
 {% block title %}Report - {{ report_type }}{% endblock %}
 {% block page_title %}Report: {{ report_type.replace('_',' ').title() }}{% endblock %}
+{% block extra_css %}
+<link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+<style>
+  /* DataTables specific styling for a cleaner look */
+  .dataTables_wrapper .dataTables_filter {
+    text-align: right;
+  }
+
+  .dataTables_wrapper .dataTables_paginate {
+    float: right;
+  }
+
+  div.dataTables_scrollBody {
+    border-bottom: none !important;
+  }
+</style>
+{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
@@ -11,11 +28,11 @@
   </div>
   <div class="d-flex gap-2">
     <a href="{{ url_for('reports.export_excel', report_type=report_type, from_date=from_date, to_date=to_date, filter_id=filter_id or '') }}"
-       class="btn btn-success btn-sm">
+      class="btn btn-success btn-sm">
       <i class="fas fa-file-excel me-1"></i>Export Excel
     </a>
     <a href="{{ url_for('reports.export_pdf', report_type=report_type, from_date=from_date, to_date=to_date, filter_id=filter_id or '') }}"
-       class="btn btn-danger btn-sm" target="_blank">
+      class="btn btn-danger btn-sm" target="_blank">
       <i class="fas fa-file-pdf me-1"></i>View / Print PDF
     </a>
   </div>
@@ -56,15 +73,29 @@
 </div>
 {% endblock %}
 {% block extra_js %}
+<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 <script>
-// Quick search in report table
-const searchHtml = '<div class="p-3"><input type="text" id="tableSearch" class="form-control form-control-sm" placeholder="Filter results..."></div>';
-document.querySelector('.card-body').insertAdjacentHTML('afterbegin', searchHtml);
-document.getElementById('tableSearch').addEventListener('keyup', function() {
-  const val = this.value.toLowerCase();
-  document.querySelectorAll('#reportTable tbody tr').forEach(row => {
-    row.style.display = row.textContent.toLowerCase().includes(val) ? '' : 'none';
+  $(document).ready(function () {
+    if ($('#reportTable').length) {
+      $('#reportTable').DataTable({
+        "scrollY": "500px",
+        "scrollCollapse": true,
+        "paging": true,
+        "pageLength": 25,
+        "lengthMenu": [10, 25, 50, 100, 500],
+        "ordering": true,
+        "info": true,
+        "language": {
+          "search": "",
+          "searchPlaceholder": "Search report..."
+        },
+        "dom": "<'row mb-3 p-3 pb-0'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6 d-flex justify-content-end'f>>" +
+          "<'row'<'col-sm-12'tr>>" +
+          "<'row mt-3 p-3 pt-0'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7 d-flex justify-content-end'p>>"
+      });
+    }
   });
-});
 </script>
 {% endblock %}
