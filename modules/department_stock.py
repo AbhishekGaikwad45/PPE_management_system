@@ -1,6 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session
 from database.db import get_db, fetchall
-from modules.employees import _display_dept_name, COMBINE_GROUPS
 from collections import defaultdict
 
 department_stock_bp = Blueprint('department_stock', __name__)
@@ -31,16 +30,15 @@ def index():
     """)
     all_departments = [row['raw_department'] for row in fetchall(c)]
 
-    # Normalize departments using the app's combine-group logic
-    unique_display_depts = set()
-    for raw_dept in all_departments:
-        display_dept = _display_dept_name(raw_dept)
-        unique_display_depts.add(display_dept)
-
     # ========== STEP 2: Determine access permissions ==========
-    if not is_admin and dept:
-        display_name = _display_dept_name(dept)
-        allowed_variants = {v.lower() for v in COMBINE_GROUPS.get(display_name, [dept])}
+    if not is_admin:
+        allowed_variants = set()
+        if dept:
+            allowed_variants.add(dept.lower())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d:
+                allowed_variants.add(d.lower())
     else:
         allowed_variants = None  # None = no restriction (Admin sees everything)
 
@@ -54,16 +52,16 @@ def index():
     rows = fetchall(c)
 
     # dept_data shape:
-    # { "Marine / Operations": { "Dust Mask": {"qty": 12, "unit": "Nos"}, ... }, ... }
+    # { "Marine": { "Dust Mask": {"qty": 12, "unit": "Nos"}, ... }, ... }
     dept_data = {}
     for row in rows:
-        raw_dept = row['raw_department']
+        raw_dept = row['raw_department'] or 'Unassigned'
 
         # Skip rows belonging to a department this user isn't allowed to see
-        if allowed_variants is not None and (raw_dept or '').lower() not in allowed_variants:
+        if allowed_variants is not None and raw_dept.lower() not in allowed_variants:
             continue
 
-        display_dept = _display_dept_name(raw_dept)
+        display_dept = raw_dept
         item_name = row['item_name']
         unit = row['unit']
         qty = row['qty'] or 0
@@ -82,9 +80,8 @@ def index():
     #
     # Note: we group by issue_register.department / stock_receipts.department
     # directly — NOT by the employee's own department — because an issue
-    # may have actually been drawn from a sibling department's stock via the
-    # COMBINE_GROUPS fallback in find_issue_department(). issue_register.department
-    # always records which department's ledger was actually decremented.
+    # may have actually been drawn from a sibling department's stock.
+    # issue_register.department always records which department's ledger was actually decremented.
 
     c.execute("SELECT id, item_name, unit FROM items ORDER BY item_name")
     all_items = fetchall(c)
@@ -139,7 +136,7 @@ def index():
         if not item:
             continue
 
-        display_dept = _display_dept_name(raw_dept)
+        display_dept = raw_dept
         item_name = item['item_name']
         unit = item['unit']
         total_issued = issued_totals.get((raw_dept, item_id), 0)

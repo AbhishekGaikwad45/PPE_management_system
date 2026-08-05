@@ -6,58 +6,125 @@ import io
 reports_bp = Blueprint('reports', __name__)
 
 
-def get_user_department():
+def get_user_dept_variants():
     """Returns None for Admin/Super Admin (sees everything),
-    otherwise returns the logged-in user's department so reports get scoped to it."""
+    otherwise returns a list of lowercase department names for the logged-in user."""
     if session.get('role') in ('Admin', 'Super Admin'):
         return None
-    return session.get('department')
+    dept = session.get('department')
+    assigned = session.get('assigned_departments') or []
+    variants = []
+    if dept:
+        variants.append(dept.lower())
+    for d in assigned:
+        if d and d.lower() not in variants:
+            variants.append(d.lower())
+    return variants if variants else None
 
 
-def get_report_data(c, report_type, from_date, to_date, filter_id=None, department=None):
+def get_report_data(c, report_type, from_date, to_date, filter_id=None, dept_variants=None):
     if report_type == 'employee':
-        c.execute("""SELECT ir.issue_date, e.emp_code, e.name, e.department, e.contractor,
-                   i.item_name, i.category, ir.qty, i.unit, ir.status, ir.returnable
-                   FROM issue_register ir JOIN employees e ON ir.employee_id=e.id JOIN items i ON ir.item_id=i.id
-                   WHERE ir.issue_date BETWEEN %s AND %s
-                   AND (%s::int IS NULL OR ir.employee_id = %s::int)
-                   AND (%s::text IS NULL OR e.department = %s::text)
-                   ORDER BY ir.issue_date DESC""",
-                  (from_date, to_date, filter_id, filter_id, department, department))
+        if dept_variants:
+            c.execute("""SELECT ir.issue_date, e.emp_code, e.name, e.department, e.contractor,
+                       i.item_name, i.category, ir.qty, i.unit, ir.status, ir.returnable
+                       FROM issue_register ir JOIN employees e ON ir.employee_id=e.id JOIN items i ON ir.item_id=i.id
+                       WHERE ir.issue_date BETWEEN %s AND %s
+                       AND (%s::int IS NULL OR ir.employee_id = %s::int)
+                       AND LOWER(e.department) = ANY(%s)
+                       ORDER BY ir.issue_date DESC""",
+                      (from_date, to_date, filter_id, filter_id, dept_variants))
+        else:
+            c.execute("""SELECT ir.issue_date, e.emp_code, e.name, e.department, e.contractor,
+                       i.item_name, i.category, ir.qty, i.unit, ir.status, ir.returnable
+                       FROM issue_register ir JOIN employees e ON ir.employee_id=e.id JOIN items i ON ir.item_id=i.id
+                       WHERE ir.issue_date BETWEEN %s AND %s
+                       AND (%s::int IS NULL OR ir.employee_id = %s::int)
+                       ORDER BY ir.issue_date DESC""",
+                      (from_date, to_date, filter_id, filter_id))
+
     elif report_type == 'department':
-        c.execute("""SELECT e.department, i.item_name, i.category, SUM(ir.qty) as total_qty, i.unit
-                   FROM issue_register ir JOIN employees e ON ir.employee_id=e.id JOIN items i ON ir.item_id=i.id
-                   WHERE ir.issue_date BETWEEN %s AND %s
-                   AND (%s::text IS NULL OR e.department = %s::text)
-                   GROUP BY e.department, i.item_name, i.category, i.unit
-                   ORDER BY e.department, total_qty DESC""",
-                  (from_date, to_date, department, department))
+        if dept_variants:
+            c.execute("""SELECT e.department, i.item_name, i.category, SUM(ir.qty) as total_qty, i.unit
+                       FROM issue_register ir JOIN employees e ON ir.employee_id=e.id JOIN items i ON ir.item_id=i.id
+                       WHERE ir.issue_date BETWEEN %s AND %s
+                       AND LOWER(e.department) = ANY(%s)
+                       GROUP BY e.department, i.item_name, i.category, i.unit
+                       ORDER BY e.department, total_qty DESC""",
+                      (from_date, to_date, dept_variants))
+        else:
+            c.execute("""SELECT e.department, i.item_name, i.category, SUM(ir.qty) as total_qty, i.unit
+                       FROM issue_register ir JOIN employees e ON ir.employee_id=e.id JOIN items i ON ir.item_id=i.id
+                       WHERE ir.issue_date BETWEEN %s AND %s
+                       GROUP BY e.department, i.item_name, i.category, i.unit
+                       ORDER BY e.department, total_qty DESC""",
+                      (from_date, to_date))
+
     elif report_type == 'contractor':
-        c.execute("""SELECT e.contractor, i.item_name, i.category, SUM(ir.qty) as total_qty, i.unit
-                   FROM issue_register ir JOIN employees e ON ir.employee_id=e.id JOIN items i ON ir.item_id=i.id
-                   WHERE ir.issue_date BETWEEN %s AND %s AND e.contractor IS NOT NULL AND e.contractor != ''
-                   GROUP BY e.contractor, i.item_name, i.category, i.unit ORDER BY e.contractor, total_qty DESC""", (from_date, to_date))
+        if dept_variants:
+            c.execute("""SELECT e.contractor, i.item_name, i.category, SUM(ir.qty) as total_qty, i.unit
+                       FROM issue_register ir JOIN employees e ON ir.employee_id=e.id JOIN items i ON ir.item_id=i.id
+                       WHERE ir.issue_date BETWEEN %s AND %s AND e.contractor IS NOT NULL AND e.contractor != ''
+                       AND LOWER(e.department) = ANY(%s)
+                       GROUP BY e.contractor, i.item_name, i.category, i.unit ORDER BY e.contractor, total_qty DESC""",
+                      (from_date, to_date, dept_variants))
+        else:
+            c.execute("""SELECT e.contractor, i.item_name, i.category, SUM(ir.qty) as total_qty, i.unit
+                       FROM issue_register ir JOIN employees e ON ir.employee_id=e.id JOIN items i ON ir.item_id=i.id
+                       WHERE ir.issue_date BETWEEN %s AND %s AND e.contractor IS NOT NULL AND e.contractor != ''
+                       GROUP BY e.contractor, i.item_name, i.category, i.unit ORDER BY e.contractor, total_qty DESC""",
+                      (from_date, to_date))
+
     elif report_type == 'item':
-        c.execute("""SELECT i.item_code, i.item_name, i.category, SUM(ir.qty) as total_issued, i.unit, i.stock
-                   FROM issue_register ir JOIN items i ON ir.item_id=i.id
-                   WHERE ir.issue_date BETWEEN %s AND %s GROUP BY i.item_code, i.item_name, i.category, i.unit, i.stock
-                   ORDER BY total_issued DESC""", (from_date, to_date))
+        if dept_variants:
+            c.execute("""SELECT i.item_code, i.item_name, i.category, SUM(ir.qty) as total_issued, i.unit, i.stock
+                       FROM issue_register ir JOIN items i ON ir.item_id=i.id JOIN employees e ON ir.employee_id=e.id
+                       WHERE ir.issue_date BETWEEN %s AND %s
+                       AND LOWER(e.department) = ANY(%s)
+                       GROUP BY i.item_code, i.item_name, i.category, i.unit, i.stock
+                       ORDER BY total_issued DESC""",
+                      (from_date, to_date, dept_variants))
+        else:
+            c.execute("""SELECT i.item_code, i.item_name, i.category, SUM(ir.qty) as total_issued, i.unit, i.stock
+                       FROM issue_register ir JOIN items i ON ir.item_id=i.id
+                       WHERE ir.issue_date BETWEEN %s AND %s GROUP BY i.item_code, i.item_name, i.category, i.unit, i.stock
+                       ORDER BY total_issued DESC""", (from_date, to_date))
+
     elif report_type == 'monthly':
-        c.execute("""SELECT TO_CHAR(TO_DATE(ir.issue_date,'YYYY-MM-DD'),'YYYY-MM') as month,
-                   i.item_name, i.category, SUM(ir.qty) as total_qty
-                   FROM issue_register ir JOIN items i ON ir.item_id=i.id
-                   WHERE ir.issue_date BETWEEN %s AND %s GROUP BY month, i.item_name, i.category ORDER BY month DESC""", (from_date, to_date))
+        if dept_variants:
+            c.execute("""SELECT TO_CHAR(TO_DATE(ir.issue_date,'YYYY-MM-DD'),'YYYY-MM') as month,
+                       i.item_name, i.category, SUM(ir.qty) as total_qty
+                       FROM issue_register ir JOIN items i ON ir.item_id=i.id JOIN employees e ON ir.employee_id=e.id
+                       WHERE ir.issue_date BETWEEN %s AND %s
+                       AND LOWER(e.department) = ANY(%s)
+                       GROUP BY month, i.item_name, i.category ORDER BY month DESC""",
+                      (from_date, to_date, dept_variants))
+        else:
+            c.execute("""SELECT TO_CHAR(TO_DATE(ir.issue_date,'YYYY-MM-DD'),'YYYY-MM') as month,
+                       i.item_name, i.category, SUM(ir.qty) as total_qty
+                       FROM issue_register ir JOIN items i ON ir.item_id=i.id
+                       WHERE ir.issue_date BETWEEN %s AND %s GROUP BY month, i.item_name, i.category ORDER BY month DESC""",
+                      (from_date, to_date))
+
     elif report_type == 'stock':
         c.execute("""SELECT item_code, item_name, category, unit, stock, min_stock,
                    CASE WHEN stock <= min_stock THEN 'LOW STOCK' ELSE 'OK' END as status
                    FROM items ORDER BY category, item_name""")
+
     elif report_type == 'inactive_employee':
-        c.execute("""SELECT emp_code, name, department, contractor, designation, category
-                   FROM employees
-                   WHERE status = 'Inactive'
-                   AND created_at::date BETWEEN %s AND %s
-                   AND (%s::text IS NULL OR department = %s::text)
-                   ORDER BY name""", (from_date, to_date, department, department))
+        if dept_variants:
+            c.execute("""SELECT emp_code, name, department, contractor, designation, category
+                       FROM employees
+                       WHERE status = 'Inactive'
+                       AND created_at::date BETWEEN %s AND %s
+                       AND LOWER(department) = ANY(%s)
+                       ORDER BY name""", (from_date, to_date, dept_variants))
+        else:
+            c.execute("""SELECT emp_code, name, department, contractor, designation, category
+                       FROM employees
+                       WHERE status = 'Inactive'
+                       AND created_at::date BETWEEN %s AND %s
+                       ORDER BY name""", (from_date, to_date))
+
     return fetchall(c)
 
 
@@ -65,10 +132,10 @@ def get_report_data(c, report_type, from_date, to_date, filter_id=None, departme
 def index():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
-    department = get_user_department()
+    dept_variants = get_user_dept_variants()
     conn = get_db(); c = conn.cursor()
-    if department:
-        c.execute("SELECT id, emp_code, name FROM employees WHERE department=%s ORDER BY name", (department,))
+    if dept_variants:
+        c.execute("SELECT id, emp_code, name FROM employees WHERE LOWER(department)=ANY(%s) ORDER BY name", (dept_variants,))
     else:
         c.execute("SELECT id, emp_code, name FROM employees ORDER BY name")
     employees = fetchall(c)
@@ -77,14 +144,14 @@ def index():
     from_date = date(today.year, today.month, 1).strftime('%Y-%m-%d')
     to_date = today.strftime('%Y-%m-%d')
     return render_template('reports.html', employees=employees, from_date=from_date, to_date=to_date,
-                           department=department)
+                           department=dept_variants)
 
 
 @reports_bp.route('/reports/view', methods=['GET', 'POST'])
 def view():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
-    department = get_user_department()
+    dept_variants = get_user_dept_variants()
     report_type = request.form.get('report_type') or request.args.get('report_type', 'employee')
     from_date = request.form.get('from_date') or request.args.get('from_date', date.today().strftime('%Y-01-01'))
     to_date = request.form.get('to_date') or request.args.get('to_date', date.today().strftime('%Y-%m-%d'))
@@ -98,9 +165,9 @@ def view():
     elif filter_id is not None:
         filter_id = int(filter_id)
     conn = get_db(); c = conn.cursor()
-    data = get_report_data(c, report_type, from_date, to_date, filter_id, department)
-    if department:
-        c.execute("SELECT id, emp_code, name FROM employees WHERE department=%s ORDER BY name", (department,))
+    data = get_report_data(c, report_type, from_date, to_date, filter_id, dept_variants)
+    if dept_variants:
+        c.execute("SELECT id, emp_code, name FROM employees WHERE LOWER(department)=ANY(%s) ORDER BY name", (dept_variants,))
     else:
         c.execute("SELECT id, emp_code, name FROM employees ORDER BY name")
     employees = fetchall(c)
@@ -119,7 +186,7 @@ def export_excel():
     except ImportError:
         flash('Install openpyxl: pip install openpyxl', 'danger')
         return redirect(url_for('reports.index'))
-    department = get_user_department()
+    dept_variants = get_user_dept_variants()
     report_type = request.args.get('report_type', 'employee')
     from_date = request.args.get('from_date', date.today().strftime('%Y-01-01'))
     to_date = request.args.get('to_date', date.today().strftime('%Y-%m-%d'))
@@ -130,7 +197,7 @@ def export_excel():
     elif filter_id is not None:
         filter_id = int(filter_id)
     conn = get_db(); c = conn.cursor()
-    data = get_report_data(c, report_type, from_date, to_date, filter_id, department)
+    data = get_report_data(c, report_type, from_date, to_date, filter_id, dept_variants)
     conn.close()
     wb = openpyxl.Workbook(); ws = wb.active; ws.title = report_type.upper()
     header_font = Font(bold=True, color='FFFFFF', size=11)
@@ -180,7 +247,7 @@ def export_excel():
 def export_pdf():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
-    department = get_user_department()
+    dept_variants = get_user_dept_variants()
     report_type = request.args.get('report_type', 'employee')
     from_date = request.args.get('from_date', date.today().strftime('%Y-01-01'))
     to_date = request.args.get('to_date', date.today().strftime('%Y-%m-%d'))
@@ -191,7 +258,7 @@ def export_pdf():
     elif filter_id is not None:
         filter_id = int(filter_id)
     conn = get_db(); c = conn.cursor()
-    data = get_report_data(c, report_type, from_date, to_date, filter_id, department)
+    data = get_report_data(c, report_type, from_date, to_date, filter_id, dept_variants)
     conn.close()
     headers = list(data[0].keys()) if data else []
     html = f"""<!DOCTYPE html><html><head><style>

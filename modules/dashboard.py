@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, session, redirect, url_for
 from database.db import get_db, fetchall
 from datetime import date
-from modules.employees import _display_dept_name, COMBINE_GROUPS   # ← ADDED
+
 
 dashboard_bp = Blueprint('dashboard', __name__)
 
@@ -21,11 +21,14 @@ def index():
 
     is_admin = role in ["Admin", "Super Admin"]
 
-    # Resolve every raw variant of the user's department (handles combined
-    # groups like IT/Information Technology, Civil/Projects, Admin/HR/Administration)
     if not is_admin:
-        display_name = _display_dept_name(dept)
-        dept_variants = [v.lower() for v in COMBINE_GROUPS.get(display_name, [dept])]
+        dept_variants = []
+        if dept:
+            dept_variants.append(dept.lower())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and d.lower() not in dept_variants:
+                dept_variants.append(d.lower())
     else:
         dept_variants = []
 
@@ -94,7 +97,7 @@ def index():
         _raw = fetchall(c)
         _m = {}
         for row in _raw:
-            d = _display_dept_name(row["department"] or "")
+            d = row["department"] or ""
             _m[d] = _m.get(d, 0) + (row["total"] or 0)
         issued_today_by_dept = sorted(
             [{"department": k, "total": v} for k, v in _m.items()],
@@ -137,7 +140,7 @@ def index():
         _raw = fetchall(c)
         _m = {}
         for row in _raw:
-            d = _display_dept_name(row["department"] or "")
+            d = row["department"] or ""
             _m[d] = _m.get(d, 0) + (row["total"] or 0)
         issued_month_by_dept = sorted(
             [{"department": k, "total": v} for k, v in _m.items()],
@@ -202,7 +205,7 @@ def index():
         _raw = fetchall(c)
         _m = {}
         for row in _raw:
-            d = _display_dept_name(row["department"] or "")
+            d = row["department"] or ""
             _m[d] = _m.get(d, 0) + (row["total"] or 0)
         low_stock_by_dept = sorted(
             [{"department": k, "total": v} for k, v in _m.items()],
@@ -281,7 +284,7 @@ def index():
                 continue
 
             # SAME LOGIC USED IN employees.py
-            display = _display_dept_name(raw_clean)
+            display = raw_clean
 
             dept_counts[display] = dept_counts.get(display, 0) + 1
 
@@ -366,7 +369,7 @@ def index():
         _merged = {}
         for row in raw_stock_by_dept:
             raw = row["department"] or ""
-            display = _display_dept_name(raw)
+            display = raw
             _merged[display] = _merged.get(display, 0) + (row["net_stock"] or 0)
 
         stock_by_dept = [
@@ -479,7 +482,7 @@ def index():
         _raw = fetchall(c)
         _m = {}
         for row in _raw:
-            d = _display_dept_name(row["department"] or "")
+            d = row["department"] or ""
             _m[d] = _m.get(d, 0) + (row["total"] or 0)
         dept_consumption = sorted(
             [{"department": k, "total": v} for k, v in _m.items()],

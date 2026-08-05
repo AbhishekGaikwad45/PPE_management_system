@@ -41,6 +41,16 @@ def get_departments():
     return [r['name'] for r in rows]
 
 
+def get_user_departments():
+    """Pulls the distinct list of group display names created in the users table."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND TRIM(department) != '' ORDER BY department")
+    rows = fetchall(c)
+    conn.close()
+    return [r['department'] for r in rows]
+
+
 # ---------- permission helpers ----------
 
 def get_role_permissions():
@@ -148,7 +158,7 @@ def index():
     c = conn.cursor()
 
     c.execute("""
-        SELECT id, username, role, full_name, department, email, created_at
+        SELECT id, username, role, full_name, department, email, created_at, assigned_departments
         FROM users
         ORDER BY id
     """)
@@ -184,6 +194,7 @@ def add():
     role = request.form.get('role', '').strip()
     department = request.form.get('department', '').strip() or None
     email = request.form.get('email', '').strip() or None
+    assigned_departments = request.form.getlist('assigned_departments')
 
     if not username or not password or not role:
         flash('Username, password and role are required.', 'danger')
@@ -193,8 +204,8 @@ def add():
     c = conn.cursor()
     try:
         c.execute(
-            "INSERT INTO users (username, password, role, full_name, department, email) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
-            (username, password, role, full_name, department, email)
+            "INSERT INTO users (username, password, role, full_name, department, email, assigned_departments) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (username, password, role, full_name, department, email, assigned_departments)
         )
         new_id = c.fetchone()[0]
         conn.commit()
@@ -217,6 +228,7 @@ def edit(user_id):
     department = request.form.get('department', '').strip() or None
     email = request.form.get('email', '').strip() or None
     password = request.form.get('password', '').strip()  # optional — blank keeps current
+    assigned_departments = request.form.getlist('assigned_departments')
 
     if not username:
         flash('Username cannot be empty.', 'danger')
@@ -240,13 +252,13 @@ def edit(user_id):
 
         if password:
             c.execute(
-                "UPDATE users SET username=%s, full_name=%s, role=%s, department=%s, email=%s, password=%s WHERE id=%s",
-                (username, full_name, role, department, email, password, user_id)
+                "UPDATE users SET username=%s, full_name=%s, role=%s, department=%s, email=%s, password=%s, assigned_departments=%s WHERE id=%s",
+                (username, full_name, role, department, email, password, assigned_departments, user_id)
             )
         else:
             c.execute(
-                "UPDATE users SET username=%s, full_name=%s, role=%s, department=%s, email=%s WHERE id=%s",
-                (username, full_name, role, department, email, user_id)
+                "UPDATE users SET username=%s, full_name=%s, role=%s, department=%s, email=%s, assigned_departments=%s WHERE id=%s",
+                (username, full_name, role, department, email, assigned_departments, user_id)
             )
         conn.commit()
 
@@ -559,7 +571,7 @@ def permissions():
         PERMISSIONS_PAGE,
         roles=ROLES,
         assignable_roles=ASSIGNABLE_ROLES,
-        departments=get_departments(),
+        departments=get_user_departments(),
         selected_department=selected_department,
         perms=perms
     )

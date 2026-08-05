@@ -5,7 +5,6 @@ import io
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from modules.employees import _display_dept_name, COMBINE_GROUPS
 from modules.user_admin import has_permission   # ← ADDED
 
 issues_bp = Blueprint('issues', __name__)
@@ -25,9 +24,14 @@ def index():
     role = session.get('role')
     is_admin = role in ['Admin', 'Super Admin']
 
-    if not is_admin and dept:
-        display_name = _display_dept_name(dept)
-        dept_variants = [v.lower() for v in COMBINE_GROUPS.get(display_name, [dept])]
+    if not is_admin:
+        dept_variants = []
+        if dept:
+            dept_variants.append(dept.lower())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and d.lower() not in dept_variants:
+                dept_variants.append(d.lower())
     else:
         dept_variants = []
 
@@ -127,17 +131,12 @@ def index():
 def find_issue_department(cur, item_id, employee_department, qty):
     """
     Return the department from which stock should be issued.
-    Loops through the combined-department group for the employee's
-    department and returns the first one whose ledger balance
     (receipts - issues + returns) can cover `qty`. Returns None if
     no department in the group has enough stock.
     """
-
-    from modules.employees import COMBINE_GROUPS, _display_dept_name
-
-    display_name = _display_dept_name(employee_department)
-
-    departments = COMBINE_GROUPS.get(display_name, [employee_department])
+    # find_issue_department logic is simplified to just check the given department
+    # since we now just issue from the exact department the employee is assigned to.
+    departments = [employee_department]
 
     for dept in departments:
 
@@ -191,7 +190,7 @@ def add():
         return redirect(url_for('auth.login'))
 
     role = session.get("role")
-    if not has_permission('can_create'):                       # ← FIXED
+    if not has_permission('can_create'):
         flash("You don't have permission to issue PPE/Equipment.", "danger")
         return redirect(url_for("issues.index"))
 
@@ -215,8 +214,11 @@ def add():
         is_admin = role in ["Admin", "Super Admin"]
 
         if not is_admin:
-            display_name = _display_dept_name(dept)
-            allowed_variants = [v.lower() for v in COMBINE_GROUPS.get(display_name, [dept])]
+            assigned = session.get("assigned_departments")
+            if assigned:
+                allowed_variants = [v.lower() for v in assigned]
+            else:
+                allowed_variants = [dept.lower()] if dept else []
             for emp_id in employee_ids:
                 c.execute("SELECT department FROM employees WHERE id=%s", (emp_id,))
                 emp = fetchone(c)
@@ -242,13 +244,7 @@ def add():
 
             for item_id in item_ids:
 
-                # ← FIXED — get_department_available_stock() was never
-                # defined anywhere in this file, so every call here raised
-                # a NameError, was swallowed by the except block below, and
-                # silently rolled back the whole issue. Replaced with the
-                # existing find_issue_department() helper, which already
-                # loops through the employee's COMBINE_GROUPS departments
-                # and returns the first one with enough ledger balance.
+                # Try to issue from the exact employee department
                 issue_department = find_issue_department(
                     c, item_id, employee_department, qty
                 )
@@ -319,18 +315,6 @@ def add():
 
 @issues_bp.route('/issues/import-excel', methods=['POST'])
 def import_excel():
-    """
-    Bulk-import issue records from an uploaded Excel file — same fields,
-    same permission gate, and same department/stock validation as the
-    single-record Add form above.
-
-    Expected header row (any order, case-insensitive):
-        Issue Date | Emp Code | Item Name | Qty | Returnable | Return Due Date | Remarks
-
-    Issue Date and Return Due Date columns can be real Excel date cells
-    or plain text in YYYY-MM-DD format. Returnable accepts Yes/No, 1/0,
-    True/False, or can simply be left blank (treated as No).
-    """
     if 'user' not in session:
         return redirect(url_for('auth.login'))
 
@@ -381,8 +365,11 @@ def import_excel():
     is_admin = role in ['Admin', 'Super Admin']
     allowed_variants = None
     if not is_admin:
-        display_name = _display_dept_name(dept)
-        allowed_variants = [v.lower() for v in COMBINE_GROUPS.get(display_name, [dept])]
+        assigned = session.get("assigned_departments")
+        if assigned:
+            allowed_variants = [v.lower() for v in assigned]
+        else:
+            allowed_variants = [dept.lower()] if dept else []
 
     conn = get_db()
     c = conn.cursor()
@@ -444,8 +431,8 @@ def import_excel():
                 continue
             # ---------- Department Validation ----------
             if department:
-                excel_department = _display_dept_name(department)
-                system_department = _display_dept_name(emp['department'] or '')
+                excel_department = department
+                system_department = emp['department'] or ''
 
                 if excel_department.lower() != system_department.lower():
                     skipped += 1
@@ -633,9 +620,14 @@ def download():
     role = session.get('role')
     is_admin = role in ['Admin', 'Super Admin']
 
-    if not is_admin and dept:
-        display_name = _display_dept_name(dept)
-        dept_variants = [v.lower() for v in COMBINE_GROUPS.get(display_name, [dept])]
+    if not is_admin:
+        dept_variants = []
+        if dept:
+            dept_variants.append(dept.lower())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and d.lower() not in dept_variants:
+                dept_variants.append(d.lower())
     else:
         dept_variants = []
 

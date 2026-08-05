@@ -18,6 +18,7 @@ def login():
             session['role'] = user['role']
             session['full_name'] = user['full_name']
             session['department'] = user['department'] if user['department'] else None
+            session['assigned_departments'] = user['assigned_departments'] if 'assigned_departments' in user and user['assigned_departments'] else []
             flash(f"Welcome, {user['full_name']}!", 'success')
             return redirect(url_for('dashboard.index'))
         else:

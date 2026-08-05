@@ -124,13 +124,37 @@
                     </select>
                   </div>
                   <div class="mb-3">
-                    <label class="form-label">Department</label>
-                    <select name="department" class="form-select">
-                      <option value="">All (No restriction)</option>
-                      {% for d in departments %}
-                      <option value="{{ d }}" {% if d==u.department %}selected{% endif %}>{{ d }}</option>
-                      {% endfor %}
-                    </select>
+                    <label class="form-label">Group Display Name</label>
+                    <input type="text" name="department" class="form-control" value="{{ u.department or '' }}" placeholder="e.g. Civil & Project">
+                    <div class="form-text">This is the display name shown in the top bar. Leave blank for "All access".</div>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">Assigned Departments</label>
+                    <div class="dropdown custom-multi-select">
+                      <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start d-flex justify-content-between align-items-center bg-white" 
+                              type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-auto-close="outside">
+                        <span class="selected-label text-truncate" style="max-width: 90%;">-- Select Departments --</span>
+                      </button>
+                      <div class="dropdown-menu w-100 p-2 shadow" style="max-height: 300px; overflow-y: auto;">
+                        <div class="sticky-top bg-white pt-1 pb-2" style="z-index: 10;">
+                          <input type="text" class="form-control form-control-sm search-input" placeholder="Search departments...">
+                        </div>
+                        <div class="options-container">
+                          {% for d in departments %}
+                          <div class="form-check px-3 py-1 dropdown-item" style="cursor:pointer;" onclick="event.stopPropagation();">
+                            <input class="form-check-input dept-checkbox ms-1" style="cursor:pointer;" type="checkbox" name="assigned_departments" value="{{ d }}" id="edit_dept_{{ u.id }}_{{ loop.index }}" {% if u.assigned_departments and d in u.assigned_departments %}checked{% endif %}>
+                            <label class="form-check-label w-100 ms-2" style="cursor:pointer;" for="edit_dept_{{ u.id }}_{{ loop.index }}">
+                              {{ d }}
+                            </label>
+                          </div>
+                          {% endfor %}
+                        </div>
+                        <div class="sticky-bottom bg-white border-top pt-2 mt-1 text-end px-2" style="z-index: 10;">
+                          <button type="button" class="btn btn-sm btn-primary w-100" onclick="this.closest('.dropdown-menu').previousElementSibling.click()">Apply</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="form-text">Select multiple departments. The user will see data from ALL selected departments.</div>
                   </div>
                   <div class="mb-3">
                     <label class="form-label">New Password (leave blank to keep current)</label>
@@ -192,13 +216,37 @@
             </select>
           </div>
           <div class="mb-3">
-            <label class="form-label">Department</label>
-            <select name="department" class="form-select">
-              <option value="">All (No restriction)</option>
-              {% for d in departments %}
-              <option value="{{ d }}">{{ d }}</option>
-              {% endfor %}
-            </select>
+            <label class="form-label">Group Display Name</label>
+            <input type="text" name="department" class="form-control" placeholder="e.g. Civil & Project">
+            <div class="form-text">This is the display name shown in the top bar. Leave blank for "All access".</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Assigned Departments</label>
+            <div class="dropdown custom-multi-select">
+              <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start d-flex justify-content-between align-items-center bg-white" 
+                      type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-auto-close="outside">
+                <span class="selected-label text-truncate" style="max-width: 90%;">-- Select Departments --</span>
+              </button>
+              <div class="dropdown-menu w-100 p-2 shadow" style="max-height: 300px; overflow-y: auto;">
+                <div class="sticky-top bg-white pt-1 pb-2" style="z-index: 10;">
+                  <input type="text" class="form-control form-control-sm search-input" placeholder="Search departments...">
+                </div>
+                <div class="options-container">
+                  {% for d in departments %}
+                  <div class="form-check px-3 py-1 dropdown-item" style="cursor:pointer;" onclick="event.stopPropagation();">
+                    <input class="form-check-input dept-checkbox ms-1" style="cursor:pointer;" type="checkbox" name="assigned_departments" value="{{ d }}" id="add_dept_{{ loop.index }}">
+                    <label class="form-check-label w-100 ms-2" style="cursor:pointer;" for="add_dept_{{ loop.index }}">
+                      {{ d }}
+                    </label>
+                  </div>
+                  {% endfor %}
+                </div>
+                <div class="sticky-bottom bg-white border-top pt-2 mt-1 text-end px-2" style="z-index: 10;">
+                  <button type="button" class="btn btn-sm btn-primary w-100" onclick="this.closest('.dropdown-menu').previousElementSibling.click()">Apply</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-text">Select multiple departments. The user will see data from ALL selected departments.</div>
           </div>
         </div>
         <div class="modal-footer">
@@ -209,4 +257,47 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.custom-multi-select').forEach(dropdown => {
+    const searchInput = dropdown.querySelector('.search-input');
+    const options = dropdown.querySelectorAll('.form-check');
+    const checkboxes = dropdown.querySelectorAll('.dept-checkbox');
+    const label = dropdown.querySelector('.selected-label');
+
+    if (!searchInput) return;
+
+    // Search filter
+    searchInput.addEventListener('input', function() {
+      const val = this.value.toLowerCase();
+      options.forEach(opt => {
+        const text = opt.textContent.toLowerCase();
+        opt.style.display = text.includes(val) ? '' : 'none';
+      });
+    });
+
+    // Update label on change
+    function updateLabel() {
+      const checked = Array.from(checkboxes).filter(cb => cb.checked);
+      if (checked.length === 0) {
+        label.textContent = '-- Select Departments --';
+      } else if (checked.length === 1) {
+        label.textContent = checked[0].value;
+      } else {
+        label.textContent = checked.length + ' departments selected';
+      }
+    }
+
+    checkboxes.forEach(cb => {
+      cb.addEventListener('change', updateLabel);
+    });
+
+    // Initial label setup
+    updateLabel();
+  });
+});
+</script>
 {% endblock %}

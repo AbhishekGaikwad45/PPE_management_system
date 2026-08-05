@@ -41,8 +41,16 @@ def index():
 
     # Department filter only for department users
     if not is_admin:
-        query += " AND r.department = %s"
-        params.append(department)
+        dept_variants = []
+        if department:
+            dept_variants.append(department.lower())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and d.lower() not in dept_variants:
+                dept_variants.append(d.lower())
+        if dept_variants:
+            query += " AND LOWER(r.department) = ANY(%s)"
+            params.append(dept_variants)
 
     if from_date:
         query += " AND r.receipt_date >= %s"

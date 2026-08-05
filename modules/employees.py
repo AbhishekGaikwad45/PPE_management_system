@@ -7,56 +7,17 @@ employees_bp = Blueprint('employees', __name__)
 
 PER_PAGE = 100
 
-# Some department names in your real data are variants of the same thing.
-# Group them under one combined display card. Match is case-insensitive.
-COMBINE_GROUPS = {
-    'Civil & Project': [
-        'Civil', 'Civil/Project', 'Civil & Project', 'Civil and Project',
-        'Project', 'Projects','Civil & Project'                      # ← ADDED 'Projects' (plural)
-    ],
-    'Administration / HR Admin': [
-        'Administration', 'HR/Admin', 'HR & Admin', 'HR and Admin', 'HR',
-        'Admin' ,'Administration / HR Admin'                                    # ← ADDED 'Admin' (short form)
-    ],
-    'IT / Information Technology': [
-        'IT', 'Information Technology',
-        'I.T.', 'Information Tech'  ,'IT / Information Technology'                # ← ADDED common IT variants too, just in case
-    ],
-    # ← ADDED — Marine + Operations combined into one card
-    'Marine / Operations': [
-        'Marine', 'Operations', 'Marine & Operations', 'Marine and Operations','Marine / Operations'
-    ],
-    # ← ADDED — Accounts + Finance & Accounts combined into one card
-    'Accounts / Finance & Accounts': [
-        'Accounts', 'Finance & Accounts', 'Finance and Accounts',
-        'Finance', 'F&A', 'Finance & Account','Accounts / Finance & Accounts'
-    ],
-    # ← ADDED — Commercial + Commercial & Stores combined into one card
-    'Commercial / Commercial & Stores': [
-        'Commercial', 'Commercial & Stores', 'Commercial and Stores',
-        'Commercial & Store', 'Commercial and Store','Commercial / Commercial & Stores'
-    ],
-}
-# reverse lookup: UPPER(raw name) -> display name
-_COMBINE_LOOKUP = {variant.upper(): display for display, variants in COMBINE_GROUPS.items() for variant in variants}
+# reverse lookup removed
+# COMBINE_GROUPS removed
 
 # Department cards that should be COMPLETELY HIDDEN from the "Employees by Department"
 # grid in the UI. Employees in these departments still exist, are still counted in the
 # overall total, and are still visible to a department-login user whose own department
 # is one of these — this only removes the card/button from the admin grid.
-# Match is case-insensitive against the DISPLAY name (after combine-grouping is applied).
 HIDDEN_DEPT_CARDS = {
     'SHIPPING & LOGISTICS', 'SHIPPING AND LOGISTICS', 'SHIPPING&LOGISTICS',
     'LOGISTICS', 'SHIPPING',
 }
-
-
-def _display_dept_name(raw_dept):
-    """Map a raw department string to its combined display name, if it's part of a group."""
-    if not raw_dept:
-        return 'Unassigned'
-    return _COMBINE_LOOKUP.get(raw_dept.strip().upper(), raw_dept.strip())
-
 
 @employees_bp.route('/employees')
 def index():
@@ -96,7 +57,7 @@ def index():
     for row in raw_dept_rows:
         raw = row['department']
         raw_clean = raw.strip() if raw else ''
-        display = _display_dept_name(raw_clean) if raw_clean else 'Unassigned'
+        display = raw_clean if raw_clean else 'Unassigned'
         dept_counts[display] = dept_counts.get(display, 0) + 1
         display_to_raw.setdefault(display, set()).add(raw)  # keep the exact original raw value for filtering
     display_to_raw = {k: list(v) for k, v in display_to_raw.items()}
@@ -110,11 +71,18 @@ def index():
     where_clauses = ["status='Active'"]
     params = []
     if not is_admin:
-            display_name = _display_dept_name(dept)
-            raw_values = display_to_raw.get(display_name, [dept])
-            placeholders = ','.join(['%s'] * len(raw_values))
-            where_clauses.append(f"department IN ({placeholders})")
-            params.extend(raw_values)
+        dept_variants = []
+        if dept:
+            dept_variants.append(dept.lower())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and d.lower() not in dept_variants:
+                dept_variants.append(d.lower())
+        
+        # Filter logic for non-admins
+        if dept_variants:
+            where_clauses.append("LOWER(TRIM(department)) IN %s")
+            params.append(tuple(dept_variants))
     elif contractor_filter:
         where_clauses.append("contractor=%s")
         params.append(contractor_filter)
@@ -153,41 +121,28 @@ def index():
     )
     employees = fetchall(c)
 
-    # Attach the combined display name to each employee row so the edit
-    # dropdown can correctly mark the right option as selected
     for emp in employees:
-        emp['dept_display'] = _display_dept_name(emp.get('department'))
+        emp['dept_display'] = emp.get('department') or 'Unassigned'
 
     if not is_admin:
         dept_counts = {}
         department_names = []
 
-# Departments (used for Add/Edit dropdowns) — dedupe using combine-groups
-    # but keep the OPTION VALUE as a real, existing raw department name
-    # (never the combined display string) so saves always match real data.
+    # Departments (used for Add/Edit dropdowns)
     if is_admin:
         c.execute("SELECT name FROM departments ORDER BY name")
     else:
-        c.execute("SELECT name FROM departments WHERE name=%s", (dept,))
+        assigned = session.get("assigned_departments")
+        if assigned:
+            c.execute("SELECT name FROM departments WHERE LOWER(TRIM(name)) = ANY(%s) ORDER BY name", ([v.lower() for v in assigned],))
+        else:
+            c.execute("SELECT name FROM departments WHERE LOWER(TRIM(name)) = LOWER(TRIM(%s))", (dept,))
     raw_departments = fetchall(c)
 
-    seen_display = {}
     departments = []
     for row in raw_departments:
         raw_name = row['name']
-        disp = _display_dept_name(raw_name)
-        if disp not in seen_display:
-            seen_display[disp] = raw_name
-            departments.append({'name': raw_name, 'display': disp})
-    departments.sort(key=lambda d: d['display'])
-
-    seen_display = set()
-    departments = []
-    for row in raw_departments:
-        disp = _display_dept_name(row['name'])
-        if disp not in seen_display:
-            seen_display.add(disp)
-            departments.append({'name': disp})
+        departments.append({'name': raw_name, 'display': raw_name})
     departments.sort(key=lambda d: d['name'])
 
     # Contractors
@@ -292,8 +247,8 @@ def edit(id):
         # view of the NEW department so the change is visible immediately —
         # even if the admin was on the unfiltered "All" list (where the row
         # can silently move to a different page after re-sorting).
-        if _display_dept_name(department) != _display_dept_name(old["department"]):
-            redirect_dept = _display_dept_name(department)
+        if department != old["department"]:
+            redirect_dept = department
             redirect_contractor = None
             redirect_page = '1'
 
@@ -604,6 +559,15 @@ def by_contractor_partial():
     conn = get_db()
     c = conn.cursor()
 
+    if not is_admin:
+        dept_variants = []
+        if dept:
+            dept_variants.append(dept.lower())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and d.lower() not in dept_variants:
+                dept_variants.append(d.lower())
+
     if name == 'Unassigned':
         if is_admin:
             c.execute(
@@ -612,8 +576,8 @@ def by_contractor_partial():
         else:
             c.execute(
                 "SELECT * FROM employees WHERE (contractor IS NULL OR TRIM(contractor)='') AND status='Active' "
-                "AND LOWER(TRIM(department))=LOWER(TRIM(%s)) ORDER BY name",
-                (dept,)
+                "AND LOWER(TRIM(department)) = ANY(%s) ORDER BY name",
+                (dept_variants,)
             )
     else:
         if is_admin:
@@ -624,15 +588,19 @@ def by_contractor_partial():
         else:
             c.execute(
                 "SELECT * FROM employees WHERE contractor=%s AND status='Active' "
-                "AND LOWER(TRIM(department))=LOWER(TRIM(%s)) ORDER BY name",
-                (name, dept)
+                "AND LOWER(TRIM(department)) = ANY(%s) ORDER BY name",
+                (name, dept_variants)
             )
     employees = fetchall(c)
 
     if is_admin:
         c.execute("SELECT name FROM departments ORDER BY name")
     else:
-        c.execute("SELECT name FROM departments WHERE LOWER(TRIM(name))=LOWER(TRIM(%s))", (dept,))
+        assigned = session.get("assigned_departments")
+        if assigned:
+            c.execute("SELECT name FROM departments WHERE LOWER(TRIM(name)) = ANY(%s) ORDER BY name", ([v.lower() for v in assigned],))
+        else:
+            c.execute("SELECT name FROM departments WHERE LOWER(TRIM(name))=LOWER(TRIM(%s))", (dept,))
     departments = fetchall(c)
 
     c.execute("SELECT name FROM contractors ORDER BY name")
@@ -661,25 +629,34 @@ def contractors():
         c.execute("SELECT name FROM departments ORDER BY name")
         departments = fetchall(c)
     else:
+        dept_variants = []
+        if dept:
+            dept_variants.append(dept.lower())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and d.lower() not in dept_variants:
+                dept_variants.append(d.lower())
+
         c.execute("""
         SELECT DISTINCT ON (UPPER(TRIM(e.contractor)))
             COALESCE(c.id, 0) AS id,
             e.contractor AS name,
             COALESCE(c.contact, '') AS contact,
-            %s AS department
+            MAX(e.department) AS department
         FROM employees e
         LEFT JOIN contractors c
           ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
         WHERE
             e.status = 'Active'
-            AND e.department = %s
+            AND LOWER(TRIM(e.department)) = ANY(%s)
             AND e.contractor IS NOT NULL
             AND TRIM(e.contractor) <> ''
+        GROUP BY UPPER(TRIM(e.contractor)), c.id, e.contractor, c.contact
         ORDER BY UPPER(TRIM(e.contractor))
-    """, (dept, dept))
+    """, (dept_variants,))
 
         contractors = fetchall(c)
-        departments = [{'name': dept}] if dept else []
+        departments = [{'name': d} for d in assigned] if assigned else ([{'name': dept}] if dept else [])
 
     # Add Unassigned synthetic contractor
     contractors.append({
@@ -719,9 +696,9 @@ def contractors():
             SELECT CASE WHEN contractor IS NULL OR TRIM(contractor) = '' THEN 'Unassigned' ELSE contractor END AS contractor, COUNT(*) AS cnt
             FROM employees
             WHERE status='Active'
-            AND department=%s
+            AND LOWER(TRIM(department)) = ANY(%s)
             GROUP BY CASE WHEN contractor IS NULL OR TRIM(contractor) = '' THEN 'Unassigned' ELSE contractor END
-        """, (dept,))
+        """, (dept_variants,))
 
     rows = fetchall(cc)
     c2.close()

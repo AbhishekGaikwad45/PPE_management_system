@@ -149,7 +149,7 @@
             <select name="item_id" class="form-select" required>
               <option value="">-- Select Item --</option>
               {% for item in items %}
-              <option value="{{ item.id }}">{{ item.item_name }} (Stock: {{ item.stock }})</option>
+              <option value="{{ item.id }}">{{ item.item_name }}</option>
               {% endfor %}
             </select>
           </div>
