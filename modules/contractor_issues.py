@@ -3,6 +3,7 @@ from database.db import get_db, fetchall, fetchone
 from datetime import date
 import io
 from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from modules.user_admin import has_permission   # ← ADDED
@@ -695,14 +696,55 @@ def import_excel():
 # ─────────────────────── IMPORT TEMPLATE DOWNLOAD ───────────────────────
 @contractor_issues_bp.route('/contractor-issues/import-template')
 def download_import_template():
-    """Returns a blank Excel template with the correct column headers and
-    one example row so users know the expected format."""
+    """Returns an Excel template with Data Validation for Item Name (from items master sheet)
+    and Returnable fields, scoped to the logged in user's department."""
     if 'user' not in session:
         return redirect(url_for('auth.login'))
 
+    conn = get_db()
+    c = conn.cursor()
+    role = session.get('role')
+    dept = session.get('department')
+    is_admin = role in ['Admin', 'Super Admin']
+
+    if not is_admin:
+        dept_variants = []
+        if dept:
+            dept_variants.append(dept.lower())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and d.lower() not in dept_variants:
+                dept_variants.append(d.lower())
+
+        c.execute("""
+            SELECT DISTINCT i.item_name
+            FROM items i
+            LEFT JOIN stock_receipts r ON r.item_id = i.id
+            WHERE LOWER(r.department) = ANY(%s) OR LOWER(i.added_by_department) = ANY(%s)
+            ORDER BY i.item_name
+        """, (dept_variants, dept_variants))
+        items_rows = fetchall(c)
+        if not items_rows:
+            c.execute("SELECT item_name FROM items ORDER BY item_name")
+            items_rows = fetchall(c)
+    else:
+        c.execute("SELECT item_name FROM items ORDER BY item_name")
+        items_rows = fetchall(c)
+    conn.close()
+
     wb = Workbook()
     ws = wb.active
-    ws.title = 'Contractor Issue Import'
+    ws.title = 'Contractor Issues Import'
+
+    # Sheet 2: items master
+    ws_items = wb.create_sheet(title='items master')
+    ws_items.cell(1, 1, 'Item Name').font = Font(bold=True)
+    ws_items.column_dimensions['A'].width = 30
+
+    for idx, row in enumerate(items_rows, start=2):
+        ws_items.cell(idx, 1, row['item_name'])
+
+    items_count = len(items_rows)
 
     headers = [
         'Issue Date', 'Emp Code', 'Name', 'Department', 'Contractor',
@@ -724,11 +766,24 @@ def download_import_template():
 
     ws.row_dimensions[1].height = 22
 
-    # One example row so users know what format is expected
+    # Add Data Validation for Item Name (Column F) referencing 'items master'!$A$2:$A$N
+    if items_count > 0:
+        max_row = items_count + 1
+        dv_item = DataValidation(type="list", formula1=f"'items master'!$A$2:$A${max_row}", allow_blank=True)
+        ws.add_data_validation(dv_item)
+        dv_item.add("F2:F1000")
+
+    # Add Data Validation for Returnable (Column H) -> Yes, No
+    dv_ret = DataValidation(type="list", formula1='"Yes,No"', allow_blank=True)
+    ws.add_data_validation(dv_ret)
+    dv_ret.add("H2:H1000")
+
+    # Example row
+    example_item = items_rows[0]['item_name'] if items_rows else 'Helmet'
     example = [
         '2026-08-01', 'CIPD003680', 'AAKASH CHANDRAKANT PATIL',
-        'Operations', 'R J Enterprises', 'Helmet',
-        2, 'Yes', '2026-09-01', 'Site work'
+        dept or 'Operations', 'R J Enterprises', example_item,
+        1, 'Yes', '2026-09-01', 'Site work'
     ]
     eg_align = Alignment(horizontal='left', vertical='center')
     eg_fill  = PatternFill('solid', fgColor='EEF2FF')
