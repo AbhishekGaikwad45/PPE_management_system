@@ -5,7 +5,7 @@
 {% block content %}
 <!-- KPI Cards -->
 <div class="row g-3 mb-4">
-  <div class="col-6 col-md-2">
+  <div class="col-6 col-md">
     <div class="kpi-card kpi-pop-wrap kpi-pop-left{% if is_admin %} kpi-hoverable{% endif %}">
       <div class="kpi-value">{{ total_employees }}</div>
       <div class="kpi-label"><i class="fas fa-users me-1"></i>Employees</div>
@@ -26,13 +26,15 @@
       {% endif %}
     </div>
   </div>
-  <div class="col-6 col-md-2">
+  {% if is_admin %}
+  <div class="col-6 col-md">
     <div class="kpi-card">
       <div class="kpi-value">{{ total_items }}</div>
       <div class="kpi-label"><i class="fas fa-boxes me-1"></i>Items</div>
     </div>
   </div>
-  <div class="col-6 col-md-2">
+  {% endif %}
+  <div class="col-6 col-md">
     <div class="kpi-card success kpi-pop-wrap{% if is_admin %} kpi-hoverable{% endif %}">
       <div class="kpi-value">{{ total_stock }}</div>
       <div class="kpi-label"><i class="fas fa-warehouse me-1"></i>Total Stock</div>
@@ -53,7 +55,7 @@
       {% endif %}
     </div>
   </div>
-  <div class="col-6 col-md-2">
+  <div class="col-6 col-md">
     <div class="kpi-card warning kpi-pop-wrap{% if is_admin %} kpi-hoverable{% endif %}">
       <div class="kpi-value">{{ issued_today }}</div>
       <div class="kpi-label"><i class="fas fa-hand-holding me-1"></i>Issued Today</div>
@@ -74,7 +76,7 @@
       {% endif %}
     </div>
   </div>
-  <div class="col-6 col-md-2">
+  <div class="col-6 col-md">
     <div class="kpi-card kpi-pop-wrap{% if is_admin %} kpi-hoverable{% endif %}">
       <div class="kpi-value">{{ issued_month }}</div>
       <div class="kpi-label"><i class="fas fa-calendar me-1"></i>This Month</div>
@@ -95,7 +97,7 @@
       {% endif %}
     </div>
   </div>
-  <div class="col-6 col-md-2">
+  <div class="col-6 col-md">
     <div class="kpi-card danger kpi-pop-wrap kpi-pop-right{% if is_admin %} kpi-hoverable{% endif %}">
       <div class="kpi-value">{{ low_stock|length }}</div>
       <div class="kpi-label"><i class="fas fa-exclamation-triangle me-1"></i>Low Stock</div>
