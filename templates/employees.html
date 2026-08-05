@@ -26,14 +26,21 @@
 <div id="empPagePermissions" data-can-edit="{{ '1' if can_edit else '0' }}" data-can-delete="{{ '1' if can_delete else '0' }}" style="display:none;"></div>
 
 <!-- Top Buttons -->
-{% if can_create %}
+{% if can_create or can_delete %}
 <div class="d-flex justify-content-end mb-3 gap-2 flex-wrap">
+  {% if can_delete %}
+  <button type="button" id="bulkDeleteBtn" class="btn btn-outline-danger d-none">
+    <i class="fas fa-trash-alt me-1"></i> Bulk Delete (<span id="bulkDeleteCount">0</span>)
+  </button>
+  {% endif %}
+  {% if can_create %}
   <button type="button" id="openImportBtn" class="btn btn-outline-primary">
     <i class="fas fa-file-upload me-1"></i> Import Excel
   </button>
   <button type="button" class="btn btn-jsw" data-bs-toggle="modal" data-bs-target="#addModal">
     <i class="fas fa-plus me-1"></i> Add Employee
   </button>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -87,20 +94,53 @@
   </div>
   <div class="card-body p-0">
     <div class="p-3">
-      <input type="text" id="searchInput" class="form-control" placeholder="Search employee (searches ALL employees, not just this page)...">
-      <div id="searchStatus" class="small text-muted mt-1" style="display:none;"></div>
+      <form method="GET" action="{{ url_for('employees.index') }}" class="d-flex w-100">
+        <input type="hidden" name="department" value="{{ dept_filter }}">
+        <input type="hidden" name="contractor" value="{{ contractor_filter }}">
+        <input type="hidden" name="sort" value="{{ sort_col }}">
+        <input type="hidden" name="order" value="{{ order }}">
+        <div class="input-group">
+          <span class="input-group-text bg-white"><i class="fas fa-search text-muted"></i></span>
+          <input type="text" name="q" id="searchInput" class="form-control border-start-0 ps-0" placeholder="Search by Employee Code or Name..." value="{{ q }}" autofocus>
+          {% if q %}
+          <a href="{{ url_for('employees.index', department=dept_filter, contractor=contractor_filter, sort=sort_col, order=order) }}" class="btn btn-outline-secondary" title="Clear Search"><i class="fas fa-times"></i></a>
+          {% endif %}
+        </div>
+      </form>
     </div>
     <div class="table-responsive employee-table-wrapper">
       <table class="table table-hover mb-0" id="empTable">
         <thead>
+          {% macro sort_link(col_id, col_name) %}
+            {% set next_order = 'desc' if (sort_col == col_id and order == 'asc') else 'asc' %}
+            <a href="{{ url_for('employees.index', department=dept_filter, contractor=contractor_filter, q=q, sort=col_id, order=next_order, page=page) }}" class="text-dark text-decoration-none d-block">
+              {{ col_name }}
+              {% if sort_col == col_id %}
+                <i class="fas fa-sort-{{ 'up' if order == 'asc' else 'down' }} ms-1"></i>
+              {% else %}
+                <i class="fas fa-sort ms-1 text-muted opacity-50"></i>
+              {% endif %}
+            </a>
+          {% endmacro %}
           <tr>
-            <th>Emp Code</th><th>Name</th><th>Department</th>
-            <th>Contractor</th><th>Designation</th><th>Status</th><th>Action</th>
+            {% if can_delete %}
+            <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>
+            {% endif %}
+            <th>{{ sort_link('emp_code', 'Emp Code') }}</th>
+            <th>{{ sort_link('name', 'Name') }}</th>
+            <th>{{ sort_link('department', 'Department') }}</th>
+            <th>{{ sort_link('contractor', 'Contractor') }}</th>
+            <th>{{ sort_link('designation', 'Designation') }}</th>
+            <th>{{ sort_link('status', 'Status') }}</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
           {% for e in employees %}
           <tr class="emp-row">
+            {% if can_delete %}
+            <td><input type="checkbox" class="form-check-input emp-checkbox" value="{{ e.id }}"></td>
+            {% endif %}
             <td><code class="text-danger">{{ e.emp_code }}</code></td>
             <td><strong>{{ e.name }}</strong></td>
             <td>{{ e.department or '-' }}</td>
@@ -216,10 +256,10 @@
       <nav>
         <ul class="pagination pagination-sm mb-0">
           <li class="page-item {{ 'disabled' if page <= 1 }}">
-            <a class="page-link" href="{{ url_for('employees.index', department=dept_filter, contractor=contractor_filter, page=page-1) }}">Previous</a>
+            <a class="page-link" href="{{ url_for('employees.index', department=dept_filter, contractor=contractor_filter, q=q, sort=sort_col, order=order, page=page-1) }}">Previous</a>
           </li>
           <li class="page-item {{ 'disabled' if page >= total_pages }}">
-            <a class="page-link" href="{{ url_for('employees.index', department=dept_filter, contractor=contractor_filter, page=page+1) }}">Next</a>
+            <a class="page-link" href="{{ url_for('employees.index', department=dept_filter, contractor=contractor_filter, q=q, sort=sort_col, order=order, page=page+1) }}">Next</a>
           </li>
         </ul>
       </nav>
@@ -330,186 +370,31 @@
 </div>
 {% endif %}
 
-{% if can_edit %}
-<!-- Dynamic Edit Modal — used ONLY by search results -->
-<div class="modal fade" id="dynamicEditModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Edit Employee</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <form method="POST" id="dynamicEditForm">
-        <input type="hidden" name="return_dept_filter" value="{{ dept_filter }}">
-        <input type="hidden" name="return_contractor_filter" value="{{ contractor_filter }}">
-        <input type="hidden" name="return_page" value="{{ page }}">
-        <div class="modal-body">
-          <div class="mb-2">
-            <label class="form-label">Emp Code</label>
-            <input type="text" name="emp_code" id="dynEmpCode" class="form-control" required>
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Name</label>
-            <input type="text" name="name" id="dynName" class="form-control" required>
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Department</label>
-            <select name="department" class="form-select" id="dynDept">
-              <option value="">-- Select --</option>
-              {% for d in departments %}
-              <option value="{{ d.name }}">{{ d.name }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Contractor</label>
-            <select name="contractor" class="form-select" id="dynContr">
-              <option value="">-- None --</option>
-              {% for c in contractors %}
-              <option value="{{ c.name }}">{{ c.name }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Designation</label>
-            <input type="text" name="designation" id="dynDesig" class="form-control">
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Status</label>
-            <select name="status" id="dynStatus" class="form-select">
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-            </select>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="submit" class="btn btn-jsw">Save Changes</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-{% endif %}
+
 
 {% endblock %}
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
 <script>
-// ── 1. Table search — searches ALL employees server-side, not just the current page ──
-(function () {
+// ── 1. Auto-submit search form with debounce ──
+(function() {
   var searchInput = document.getElementById('searchInput');
-  var tbody = document.querySelector('#empTable tbody');
-  var statusEl = document.getElementById('searchStatus');
-  var paginationBar = document.getElementById('paginationBar');
-  var originalRowsHTML = tbody.innerHTML;   // remember the normal paginated rows so we can restore them
-  var debounceTimer = null;
-
-  var permsEl = document.getElementById('empPagePermissions');
-  var canEdit = permsEl.getAttribute('data-can-edit') === '1';
-  var canDelete = permsEl.getAttribute('data-can-delete') === '1';
-  var searchResultsById = {};
-
-  function actionButtonsHtml(e) {
-    if (!canEdit && !canDelete) {
-      return '<span class="text-muted small">View only</span>';
-    }
-    var html = '';
-    if (canEdit) {
-      html += '<button type="button" class="btn btn-sm btn-outline-primary me-1 js-search-edit-btn" ' +
-              'data-emp-id="' + e.id + '"><i class="fas fa-edit"></i></button>';
-    }
-    if (canDelete) {
-      html += '<a href="/employees/delete/' + e.id + '" class="btn btn-sm btn-outline-danger" ' +
-              'onclick="return confirm(\'Delete this employee?\')"><i class="fas fa-trash"></i></a>';
-    }
-    return html;
-  }
-
-  searchInput.addEventListener('keyup', function () {
-    var val = this.value.trim();
-    clearTimeout(debounceTimer);
-
-    if (val === '') {
-      tbody.innerHTML = originalRowsHTML;
-      statusEl.style.display = 'none';
-      if (paginationBar) paginationBar.style.display = '';
-      return;
+  if (searchInput) {
+    // Ensure cursor is at the end if there's already text (due to autofocus)
+    if (searchInput.value) {
+      var val = searchInput.value;
+      searchInput.value = '';
+      searchInput.value = val;
     }
 
-    debounceTimer = setTimeout(function () {
-      statusEl.style.display = 'block';
-      statusEl.textContent = 'Searching all employees...';
-
-      fetch('/employees/search?q=' + encodeURIComponent(val))
-        .then(function (res) { return res.json(); })
-        .then(function (results) {
-          if (paginationBar) paginationBar.style.display = 'none';
-
-          if (!results.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No matching employees found.</td></tr>';
-            statusEl.textContent = 'No matches.';
-            return;
-          }
-
-          statusEl.textContent = results.length + ' match(es) found (showing up to 20). Clear the search box to return to the full list.';
-
-          searchResultsById = {};
-          results.forEach(function (e) { searchResultsById[e.id] = e; });
-
-          var rowsHtml = results.map(function (e) {
-            return '<tr class="emp-row">' +
-              '<td><code class="text-danger">' + (e.emp_code || '') + '</code></td>' +
-              '<td><strong>' + (e.name || '') + '</strong></td>' +
-              '<td>' + (e.department || '-') + '</td>' +
-              '<td>' + (e.contractor || '-') + '</td>' +
-              '<td>' + (e.designation || '-') + '</td>' +
-              '<td><span class="badge ' + (e.status === 'Active' ? 'bg-success' : 'bg-secondary') + '">' + (e.status || '-') + '</span></td>' +
-              '<td>' + actionButtonsHtml(e) + '</td>' +
-              '</tr>';
-          }).join('');
-          tbody.innerHTML = rowsHtml;
-        })
-        .catch(function () {
-          tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">Search failed. Try again.</td></tr>';
-          statusEl.textContent = '';
-        });
-    }, 300);
-  });
-
-  tbody.addEventListener('click', function (evt) {
-    var btn = evt.target.closest('.js-search-edit-btn');
-    if (!btn) return;
-
-    var emp = searchResultsById[btn.getAttribute('data-emp-id')];
-    if (!emp) return;
-
-    var form = document.getElementById('dynamicEditForm');
-    form.action = '/employees/edit/' + emp.id;
-    document.getElementById('dynEmpCode').value = emp.emp_code || '';
-    document.getElementById('dynName').value = emp.name || '';
-    document.getElementById('dynDesig').value = emp.designation || '';
-    setSelectValue(document.getElementById('dynDept'), emp.department);
-    setSelectValue(document.getElementById('dynContr'), emp.contractor);
-    document.getElementById('dynStatus').value = emp.status || 'Active';
-
-    var modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('dynamicEditModal'));
-    modal.show();
-  });
-
-  function setSelectValue(selectEl, value) {
-    if (!selectEl) return;
-    value = value || '';
-    var exists = Array.prototype.some.call(selectEl.options, function (opt) {
-      return opt.value === value;
+    var timer;
+    searchInput.addEventListener('input', function() {
+      clearTimeout(timer);
+      timer = setTimeout(function() {
+        searchInput.form.submit();
+      }, 500); // 500ms debounce
     });
-    if (value && !exists) {
-      var opt = document.createElement('option');
-      opt.value = value;
-      opt.textContent = value + ' (current)';
-      selectEl.insertBefore(opt, selectEl.firstChild.nextSibling);
-    }
-    selectEl.value = value;
   }
 })();
 
@@ -615,5 +500,80 @@ if (importModalEl) {
     dropZone.classList.remove('dragover');
   });
 }
+
+// ── 4. Bulk Delete Logic ────────────────────
+var selectAll = document.getElementById('selectAll');
+var empCheckboxes = document.querySelectorAll('.emp-checkbox');
+var bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+var bulkDeleteCount = document.getElementById('bulkDeleteCount');
+
+function updateBulkDeleteBtn() {
+  if (!bulkDeleteBtn) return;
+  var checked = document.querySelectorAll('.emp-checkbox:checked').length;
+  if (checked > 0) {
+    bulkDeleteCount.textContent = checked;
+    bulkDeleteBtn.classList.remove('d-none');
+  } else {
+    bulkDeleteBtn.classList.add('d-none');
+  }
+}
+
+if (selectAll) {
+  selectAll.addEventListener('change', function() {
+    var isChecked = this.checked;
+    empCheckboxes.forEach(function(cb) {
+      cb.checked = isChecked;
+    });
+    updateBulkDeleteBtn();
+  });
+}
+
+empCheckboxes.forEach(function(cb) {
+  cb.addEventListener('change', function() {
+    if (!this.checked && selectAll) {
+      selectAll.checked = false;
+    } else if (document.querySelectorAll('.emp-checkbox:checked').length === empCheckboxes.length && selectAll) {
+      selectAll.checked = true;
+    }
+    updateBulkDeleteBtn();
+  });
+});
+
+if (bulkDeleteBtn) {
+  bulkDeleteBtn.addEventListener('click', function() {
+    var checkedBoxes = document.querySelectorAll('.emp-checkbox:checked');
+    if (checkedBoxes.length === 0) return;
+    
+    if (!confirm('Are you sure you want to delete ' + checkedBoxes.length + ' selected employee(s)?')) {
+      return;
+    }
+    
+    var ids = [];
+    checkedBoxes.forEach(function(cb) { ids.push(parseInt(cb.value)); });
+    
+    bulkDeleteBtn.disabled = true;
+    bulkDeleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Deleting...';
+    
+    fetch('{{ url_for("employees.bulk_delete") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emp_ids: ids })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        window.location.reload();
+      } else {
+        alert(data.message || 'Error occurred during bulk delete.');
+        window.location.reload();
+      }
+    })
+    .catch(err => {
+      alert('Network error occurred.');
+      window.location.reload();
+    });
+  });
+}
+
 </script>
 {% endblock %}

@@ -184,13 +184,13 @@ def ledger():
         """)
     else:
         c.execute("""
-            SELECT DISTINCT i.*
+            SELECT i.id, i.item_name, i.unit,
+                   COALESCE((SELECT SUM(qty) FROM stock_receipts WHERE item_id=i.id AND department=%s), 0) -
+                   COALESCE((SELECT SUM(qty) FROM issue_register WHERE item_id=i.id AND department=%s), 0) AS stock
             FROM items i
-            JOIN stock_receipts s
-                ON s.item_id = i.id
-            WHERE s.department = %s
+            WHERE i.id IN (SELECT item_id FROM stock_receipts WHERE department=%s)
             ORDER BY i.item_name
-        """, (department,))
+        """, (department, department, department))
 
     items = fetchall(c)
 
@@ -210,13 +210,12 @@ def ledger():
             )
         else:
             c.execute("""
-                SELECT DISTINCT i.*
+                SELECT i.id, i.item_name, i.unit,
+                       COALESCE((SELECT SUM(qty) FROM stock_receipts WHERE item_id=i.id AND department=%s), 0) -
+                       COALESCE((SELECT SUM(qty) FROM issue_register WHERE item_id=i.id AND department=%s), 0) AS stock
                 FROM items i
-                JOIN stock_receipts s
-                    ON s.item_id = i.id
                 WHERE i.id=%s
-                  AND s.department=%s
-            """, (item_id, department))
+            """, (department, department, item_id))
 
         selected_item = fetchone(c)
 

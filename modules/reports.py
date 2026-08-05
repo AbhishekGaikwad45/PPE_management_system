@@ -51,6 +51,13 @@ def get_report_data(c, report_type, from_date, to_date, filter_id=None, departme
         c.execute("""SELECT item_code, item_name, category, unit, stock, min_stock,
                    CASE WHEN stock <= min_stock THEN 'LOW STOCK' ELSE 'OK' END as status
                    FROM items ORDER BY category, item_name""")
+    elif report_type == 'inactive_employee':
+        c.execute("""SELECT emp_code, name, department, contractor, designation, category
+                   FROM employees
+                   WHERE status = 'Inactive'
+                   AND created_at::date BETWEEN %s AND %s
+                   AND (%s::text IS NULL OR department = %s::text)
+                   ORDER BY name""", (from_date, to_date, department, department))
     return fetchall(c)
 
 

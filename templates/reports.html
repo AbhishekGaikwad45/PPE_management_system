@@ -11,6 +11,7 @@
           <label class="form-label fw-semibold">Report Type</label>
           <select name="report_type" class="form-select" id="reportType" onchange="toggleFilter()">
             <option value="employee">Employee-wise Issue History</option>
+            <option value="inactive_employee">Inactive Employees</option>
             <option value="department">Department-wise Consumption</option>
             <option value="contractor">Contractor-wise Consumption</option>
             <option value="item">Item-wise Consumption</option>
@@ -68,6 +69,13 @@
       <i class="fas fa-boxes fa-2x text-danger mb-2"></i>
       <h6>Stock Status</h6>
       <small class="text-muted">Current inventory levels</small>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-center p-3 report-card" role="button" onclick="openReport('inactive_employee')">
+      <i class="fas fa-user-times fa-2x text-secondary mb-2"></i>
+      <h6>Inactive Employees</h6>
+      <small class="text-muted">List of inactive employees</small>
     </div>
   </div>
 </div>

@@ -71,10 +71,19 @@ def index():
     # Optional filters from query string (?department=X or ?contractor=X, &page=N)
     dept_filter = request.args.get('department') or ''
     contractor_filter = request.args.get('contractor') or ''
+    q = request.args.get('q', '').strip()
+    sort_col = request.args.get('sort', 'name')
+    order = request.args.get('order', 'asc').lower()
     page = request.args.get('page', 1, type=int)
     if page < 1:
         page = 1
     offset = (page - 1) * PER_PAGE
+
+    if order not in ['asc', 'desc']:
+        order = 'asc'
+    valid_sorts = ['emp_code', 'name', 'department', 'contractor', 'designation', 'status']
+    if sort_col not in valid_sorts:
+        sort_col = 'name'
 
     # Pull raw department text for every Active employee and group in Python —
     # more reliable than SQL TRIM(), which does not strip \r / \t / other
@@ -118,6 +127,10 @@ def index():
                 placeholders = ','.join(['%s'] * len(raw_values))
                 where_clauses.append(f"department IN ({placeholders})")
                 params.extend(raw_values)
+    if q:
+        where_clauses.append("(name ILIKE %s OR emp_code ILIKE %s)")
+        params.extend([f'%{q}%', f'%{q}%'])
+
     where_sql = "WHERE " + " AND ".join(where_clauses)
 
     # Total count for this filter (fast — COUNT only, no row data)
@@ -128,9 +141,14 @@ def index():
         page = total_pages
         offset = (page - 1) * PER_PAGE
 
+    order_dir = 'ASC' if order == 'asc' else 'DESC'
+    order_sql = f"ORDER BY {sort_col} {order_dir} NULLS LAST"
+    if sort_col != 'name':
+        order_sql += ", name ASC"
+
     # Only fetch ONE page of rows, not all 5000+
     c.execute(
-        f"SELECT * FROM employees {where_sql} ORDER BY department NULLS LAST, name LIMIT %s OFFSET %s",
+        f"SELECT * FROM employees {where_sql} {order_sql} LIMIT %s OFFSET %s",
         params + [PER_PAGE, offset]
     )
     employees = fetchall(c)
@@ -187,6 +205,7 @@ def index():
                             can_edit=can_edit, can_delete=can_delete,
                             is_admin=is_admin, dept_counts=dept_counts,
                             dept_filter=dept_filter, contractor_filter=contractor_filter,
+                            q=q, sort_col=sort_col, order=order,
                             page=page, total_pages=total_pages,
                             total=total, per_page=PER_PAGE)
 
@@ -317,6 +336,40 @@ def delete(id):
         flash(f'Error: {e}', 'danger')
     conn.close()
     return redirect(url_for('employees.index'))
+
+@employees_bp.route('/employees/bulk-delete', methods=['POST'])
+def bulk_delete():
+    if 'user' not in session or not has_permission('can_delete'):
+        return jsonify({'success': False, 'message': 'Access denied.'})
+    
+    emp_ids = request.json.get('emp_ids', [])
+    if not emp_ids:
+        return jsonify({'success': False, 'message': 'No employees selected.'})
+        
+    conn = get_db()
+    c = conn.cursor()
+    try:
+        placeholders = ','.join(['%s'] * len(emp_ids))
+        c.execute(f"SELECT emp_code, name, id FROM employees WHERE id IN ({placeholders})", emp_ids)
+        emps = fetchall(c)
+        
+        user = session.get('user')
+        for emp in emps:
+            c.execute("""
+                INSERT INTO deleted_employees (emp_code, name, deleted_by)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (emp_code) DO UPDATE
+                    SET name=EXCLUDED.name, deleted_by=EXCLUDED.deleted_by, deleted_at=CURRENT_TIMESTAMP
+            """, (emp['emp_code'], emp['name'], user))
+            
+        c.execute(f"DELETE FROM employees WHERE id IN ({placeholders})", emp_ids)
+        conn.commit()
+        return jsonify({'success': True, 'message': f'{len(emps)} employees deleted successfully.'})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)})
+    finally:
+        conn.close()
 
 
 # ← ADD — lets an admin see/undo tombstones, and re-allow a specific emp_code
@@ -551,17 +604,29 @@ def by_contractor_partial():
     conn = get_db()
     c = conn.cursor()
 
-    if is_admin:
-        c.execute(
-            "SELECT * FROM employees WHERE contractor=%s AND status='Active' ORDER BY name",
-            (name,)
-        )
+    if name == 'Unassigned':
+        if is_admin:
+            c.execute(
+                "SELECT * FROM employees WHERE (contractor IS NULL OR TRIM(contractor)='') AND status='Active' ORDER BY name"
+            )
+        else:
+            c.execute(
+                "SELECT * FROM employees WHERE (contractor IS NULL OR TRIM(contractor)='') AND status='Active' "
+                "AND LOWER(TRIM(department))=LOWER(TRIM(%s)) ORDER BY name",
+                (dept,)
+            )
     else:
-        c.execute(
-            "SELECT * FROM employees WHERE contractor=%s AND status='Active' "
-            "AND LOWER(TRIM(department))=LOWER(TRIM(%s)) ORDER BY name",
-            (name, dept)
-        )
+        if is_admin:
+            c.execute(
+                "SELECT * FROM employees WHERE contractor=%s AND status='Active' ORDER BY name",
+                (name,)
+            )
+        else:
+            c.execute(
+                "SELECT * FROM employees WHERE contractor=%s AND status='Active' "
+                "AND LOWER(TRIM(department))=LOWER(TRIM(%s)) ORDER BY name",
+                (name, dept)
+            )
     employees = fetchall(c)
 
     if is_admin:
@@ -615,6 +680,15 @@ def contractors():
 
         contractors = fetchall(c)
         departments = [{'name': dept}] if dept else []
+
+    # Add Unassigned synthetic contractor
+    contractors.append({
+        'id': 0,
+        'name': 'Unassigned',
+        'contact': '',
+        'department': 'Unassigned' if is_admin else dept
+    })
+
     conn.close()
 
     can_create = has_permission('can_create')
@@ -635,22 +709,18 @@ def contractors():
 
     if is_admin:
         cc.execute("""
-            SELECT contractor, COUNT(*) AS cnt
+            SELECT CASE WHEN contractor IS NULL OR TRIM(contractor) = '' THEN 'Unassigned' ELSE contractor END AS contractor, COUNT(*) AS cnt
             FROM employees
             WHERE status='Active'
-            AND contractor IS NOT NULL
-            AND TRIM(contractor) <> ''
-            GROUP BY contractor
+            GROUP BY CASE WHEN contractor IS NULL OR TRIM(contractor) = '' THEN 'Unassigned' ELSE contractor END
         """)
     else:
         cc.execute("""
-            SELECT contractor, COUNT(*) AS cnt
+            SELECT CASE WHEN contractor IS NULL OR TRIM(contractor) = '' THEN 'Unassigned' ELSE contractor END AS contractor, COUNT(*) AS cnt
             FROM employees
             WHERE status='Active'
             AND department=%s
-            AND contractor IS NOT NULL
-            AND TRIM(contractor) <> ''
-            GROUP BY contractor
+            GROUP BY CASE WHEN contractor IS NULL OR TRIM(contractor) = '' THEN 'Unassigned' ELSE contractor END
         """, (dept,))
 
     rows = fetchall(cc)
