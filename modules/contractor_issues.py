@@ -375,22 +375,40 @@ def download():
     role = session.get("role")
     is_admin = role in ["Admin", "Super Admin"]
 
+    if not is_admin:
+        dept_variants = []
+        if dept:
+            dept_variants.append(dept.strip().lower())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and d.strip().lower() not in dept_variants:
+                dept_variants.append(d.strip().lower())
+    else:
+        dept_variants = []
+
     from_date = request.args.get('from_date', '')
     to_date = request.args.get('to_date', '')
 
     query = """
-        SELECT cir.issue_date, ct.name as contractor_name, ct.department,
+        SELECT cir.issue_date, ct.name as contractor_name, e.department,
+               e.emp_code, e.name as employee_name,
                i.item_name, cir.qty, i.unit, cir.status, cir.returnable,
                cir.return_due_date, cir.issued_by, cir.remarks
         FROM contractor_issue_register cir
-        JOIN contractors ct ON cir.contractor_id=ct.id
-        JOIN items i ON cir.item_id=i.id
+        LEFT JOIN contractors ct ON cir.contractor_id=ct.id
+        LEFT JOIN employees e ON cir.employee_id=e.id
+        LEFT JOIN items i ON cir.item_id=i.id
         WHERE 1=1
     """
     params = []
     if not is_admin:
-        query += " AND ct.department=%s"
-        params.append(dept)
+        if dept_variants:
+            query += " AND LOWER(TRIM(e.department)) = ANY(%s)"
+            params.append(dept_variants)
+        elif dept:
+            query += " AND LOWER(TRIM(e.department)) = LOWER(TRIM(%s))"
+            params.append(dept)
+
     if from_date:
         query += " AND cir.issue_date >= %s"
         params.append(from_date)
@@ -407,7 +425,7 @@ def download():
     ws = wb.active
     ws.title = 'Contractor PPE Issue Report'
 
-    headers = ['Date', 'Contractor', 'Department', 'Item', 'Qty', 'Unit',
+    headers = ['Date', 'Contractor', 'Department', 'Emp Code', 'Employee Name', 'Item', 'Qty', 'Unit',
                'Status', 'Returnable', 'Return Due Date', 'Issued By', 'Remarks']
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
@@ -428,22 +446,25 @@ def download():
     row_idx = 3
     for r in rows:
         values = [
-            r['issue_date'], r['contractor_name'], r['department'] or '',
-            r['item_name'], r['qty'], r['unit'], r['status'],
+            r['issue_date'], r['contractor_name'] or '', r['department'] or '',
+            r['emp_code'] or '', r['employee_name'] or '',
+            r['item_name'] or '', r['qty'], r['unit'] or '', r['status'] or '',
             'Yes' if r['returnable'] else 'No',
-            r['return_due_date'] or '', r['issued_by'], r['remarks'] or '',
+            r['return_due_date'] or '', r['issued_by'] or '', r['remarks'] or '',
         ]
         for col_idx, val in enumerate(values, start=1):
             cell = ws.cell(row_idx, col_idx, val)
             cell.border = _border
-            cell.alignment = _left if col_idx in (2, 4, 11) else _ctr
+            cell.alignment = _left if col_idx in (2, 5, 6, 13) else _ctr
         row_idx += 1
 
     for col in range(1, len(headers) + 1):
         ws.column_dimensions[get_column_letter(col)].width = 16
     ws.column_dimensions['B'].width = 22
-    ws.column_dimensions['D'].width = 22
-    ws.column_dimensions['K'].width = 26
+    ws.column_dimensions['D'].width = 14
+    ws.column_dimensions['E'].width = 24
+    ws.column_dimensions['F'].width = 22
+    ws.column_dimensions['M'].width = 26
     ws.freeze_panes = 'A3'
 
     buf = io.BytesIO()
