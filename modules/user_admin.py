@@ -51,6 +51,35 @@ def get_user_departments():
     return [r['department'] for r in rows]
 
 
+def get_user_dept_variants():
+    """Returns None for Admin/Super Admin (sees everything),
+    otherwise returns a list of lowercase department names for the logged-in user
+    combining session['department'] and session['assigned_departments']."""
+    role = session.get('role')
+    if role in ('Admin', 'Super Admin'):
+        return None
+    dept = session.get('department')
+    assigned = session.get('assigned_departments') or []
+
+    raw_list = []
+    if dept:
+        raw_list.append(dept.strip())
+    for d in assigned:
+        if d:
+            raw_list.append(d.strip())
+
+    if not raw_list:
+        return None
+
+    variants = []
+    for d in raw_list:
+        d_lower = d.lower()
+        if d_lower not in variants:
+            variants.append(d_lower)
+
+    return variants if variants else None
+
+
 # ---------- permission helpers ----------
 
 def get_role_permissions():

@@ -6,7 +6,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from modules.user_admin import has_permission   # ← ADDED
+from modules.user_admin import has_permission, get_user_dept_variants
 
 contractor_issues_bp = Blueprint('contractor_issues', __name__)
 _thin = Side(style='thin', color='C7CDD4')
@@ -20,13 +20,13 @@ def index():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
     conn = get_db(); c = conn.cursor()
-    dept = session.get('department')
 
     from_date = request.args.get('from_date', '')
     to_date = request.args.get('to_date', '')
 
     role = session.get("role")
     is_admin = role in ["Admin", "Super Admin"]
+    dept_variants = get_user_dept_variants()
 
     # Auto-sync contractors from active employees into contractors table if missing
     c.execute("""
@@ -37,24 +37,28 @@ def index():
           AND NOT EXISTS (
               SELECT 1 FROM contractors c WHERE UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
           )
+          AND NOT EXISTS (
+              SELECT 1 FROM deleted_contractors dc WHERE UPPER(TRIM(dc.name)) = UPPER(TRIM(e.contractor))
+          )
     """)
     conn.commit()
 
-    if is_admin:
+    if is_admin or not dept_variants:
         c.execute("""
             SELECT DISTINCT
                 c.id,
                 c.name,
                 COALESCE(c.contact, '') AS contact,
-                e.department
-            FROM employees e
-            JOIN contractors c
-                ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
+                COALESCE(e.department, c.department) AS department
+            FROM contractors c
+            LEFT JOIN employees e
+                ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor)) AND e.status = 'Active'
             WHERE
-                e.status = 'Active'
-                AND e.contractor IS NOT NULL
-                AND TRIM(e.contractor) <> ''
-            ORDER BY e.department, c.name
+                ((e.contractor IS NOT NULL AND TRIM(e.contractor) <> '') OR (c.name IS NOT NULL))
+                AND NOT EXISTS (
+                    SELECT 1 FROM deleted_contractors dc WHERE UPPER(TRIM(dc.name)) = UPPER(TRIM(c.name))
+                )
+            ORDER BY department, c.name
         """)
     else:
         c.execute("""
@@ -62,17 +66,18 @@ def index():
                 c.id,
                 c.name,
                 COALESCE(c.contact, '') AS contact,
-                e.department
-            FROM employees e
-            JOIN contractors c
-                ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
+                COALESCE(MAX(e.department), MAX(c.department)) AS department
+            FROM contractors c
+            LEFT JOIN employees e
+                ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor)) AND e.status = 'Active'
             WHERE
-                e.status = 'Active'
-                AND LOWER(TRIM(e.department)) = LOWER(TRIM(%s))
-                AND e.contractor IS NOT NULL
-                AND TRIM(e.contractor) <> ''
+                (LOWER(TRIM(e.department)) = ANY(%s) OR LOWER(TRIM(c.department)) = ANY(%s))
+                AND NOT EXISTS (
+                    SELECT 1 FROM deleted_contractors dc WHERE UPPER(TRIM(dc.name)) = UPPER(TRIM(c.name))
+                )
+            GROUP BY c.id, c.name, c.contact
             ORDER BY c.name
-        """, (dept,))
+        """, (dept_variants, dept_variants))
 
     contractors_raw = fetchall(c)
 
@@ -80,7 +85,7 @@ def index():
         {
             "id": ct["id"],
             "name": ct["name"],
-            "label": f"{ct['name']} ({ct['department']})" if is_admin else ct["name"]
+            "label": f"{ct['name']} ({ct['department']})" if (is_admin or not dept_variants) else ct["name"]
         }
         for ct in contractors_raw
     ]
@@ -99,13 +104,16 @@ def index():
         e.status='Active'
         AND e.contractor IS NOT NULL
         AND TRIM(e.contractor) <> ''
+        AND NOT EXISTS (
+            SELECT 1 FROM deleted_contractors dc WHERE UPPER(TRIM(dc.name)) = UPPER(TRIM(c.name))
+        )
     """
 
     params = []
 
-    if not is_admin and dept:
-        query += " AND LOWER(TRIM(e.department)) = LOWER(TRIM(%s))"
-        params.append(dept)
+    if not is_admin and dept_variants:
+        query += " AND LOWER(TRIM(e.department)) = ANY(%s)"
+        params.append(dept_variants)
 
     query += " ORDER BY e.name"
 
@@ -144,7 +152,7 @@ def index():
             cir.remarks,
 
             ct.name AS contractor_name,
-            e.department,
+            COALESCE(e.department, ct.department) AS department,
 
             e.id AS emp_id,
             e.emp_code,
@@ -167,9 +175,9 @@ def index():
         WHERE 1=1
         """
     params = []
-    if not is_admin and dept:
-        query += " AND LOWER(TRIM(e.department)) = LOWER(TRIM(%s))"
-        params.append(dept)
+    if not is_admin and dept_variants:
+        query += " AND (LOWER(TRIM(e.department)) = ANY(%s) OR LOWER(TRIM(ct.department)) = ANY(%s))"
+        params.extend([dept_variants, dept_variants])
     if from_date:
         query += " AND cir.issue_date >= %s"; params.append(from_date)
     if to_date:
@@ -216,16 +224,16 @@ def add():
         return_due = request.form.get('return_due_date') if returnable else None
 
         role = session.get("role")
-        dept = session.get("department")
+        dept_variants = get_user_dept_variants()
         is_admin = role in ["Admin", "Super Admin"]
 
-        # Department validation: for non-admins, ensure all selected employees belong to the logged-in department
-        if not is_admin and dept:
-            session_dept = dept.strip().lower()
+        # Department validation: for non-admins, ensure all selected employees belong to the logged-in department variants
+        if not is_admin and dept_variants:
             for emp_id in employee_ids:
                 c.execute("SELECT department FROM employees WHERE id=%s", (emp_id,))
                 emp_row = fetchone(c)
-                if not emp_row or (emp_row["department"] or "").strip().lower() != session_dept:
+                emp_dept = (emp_row["department"] or "").strip().lower() if emp_row else ""
+                if not emp_row or emp_dept not in dept_variants:
                     conn.close()
                     flash("You can only issue PPE to employees in your department.", "danger")
                     return redirect(url_for("contractor_issues.index"))
@@ -371,26 +379,15 @@ def download():
         return redirect(url_for('auth.login'))
 
     conn = get_db(); c = conn.cursor()
-    dept = session.get('department')
     role = session.get("role")
     is_admin = role in ["Admin", "Super Admin"]
-
-    if not is_admin:
-        dept_variants = []
-        if dept:
-            dept_variants.append(dept.strip().lower())
-        assigned = session.get("assigned_departments") or []
-        for d in assigned:
-            if d and d.strip().lower() not in dept_variants:
-                dept_variants.append(d.strip().lower())
-    else:
-        dept_variants = []
+    dept_variants = get_user_dept_variants()
 
     from_date = request.args.get('from_date', '')
     to_date = request.args.get('to_date', '')
 
     query = """
-        SELECT cir.issue_date, ct.name as contractor_name, e.department,
+        SELECT cir.issue_date, ct.name as contractor_name, COALESCE(e.department, ct.department) as department,
                e.emp_code, e.name as employee_name,
                i.item_name, cir.qty, i.unit, cir.status, cir.returnable,
                cir.return_due_date, cir.issued_by, cir.remarks
@@ -401,13 +398,9 @@ def download():
         WHERE 1=1
     """
     params = []
-    if not is_admin:
-        if dept_variants:
-            query += " AND LOWER(TRIM(e.department)) = ANY(%s)"
-            params.append(dept_variants)
-        elif dept:
-            query += " AND LOWER(TRIM(e.department)) = LOWER(TRIM(%s))"
-            params.append(dept)
+    if not is_admin and dept_variants:
+        query += " AND (LOWER(TRIM(e.department)) = ANY(%s) OR LOWER(TRIM(ct.department)) = ANY(%s))"
+        params.extend([dept_variants, dept_variants])
 
     if from_date:
         query += " AND cir.issue_date >= %s"
@@ -608,10 +601,10 @@ def import_excel():
                 continue
 
             # -- Department access check for non-admins -------------------
-            if not is_admin:
-                session_dept = (dept or '').strip().lower()
+            dept_variants = get_user_dept_variants()
+            if not is_admin and dept_variants:
                 emp_dept = (emp['department'] or '').strip().lower()
-                if emp_dept != session_dept:
+                if emp_dept not in dept_variants:
                     skipped += 1
                     errors.append(
                         f"Row {row_num}: employee '{emp_code}' is outside your "
@@ -728,15 +721,9 @@ def download_import_template():
     dept = session.get('department')
     is_admin = role in ['Admin', 'Super Admin']
 
-    if not is_admin:
-        dept_variants = []
-        if dept:
-            dept_variants.append(dept.lower())
-        assigned = session.get("assigned_departments") or []
-        for d in assigned:
-            if d and d.lower() not in dept_variants:
-                dept_variants.append(d.lower())
+    dept_variants = get_user_dept_variants()
 
+    if not is_admin and dept_variants:
         c.execute("""
             SELECT DISTINCT i.item_name
             FROM items i
