@@ -115,15 +115,13 @@ def get_report_data(c, report_type, from_date, to_date, filter_id=None, dept_var
             c.execute("""SELECT emp_code, name, department, contractor, designation, category
                        FROM employees
                        WHERE status = 'Inactive'
-                       AND created_at::date BETWEEN %s AND %s
                        AND LOWER(department) = ANY(%s)
-                       ORDER BY name""", (from_date, to_date, dept_variants))
+                       ORDER BY name""", (dept_variants,))
         else:
             c.execute("""SELECT emp_code, name, department, contractor, designation, category
                        FROM employees
                        WHERE status = 'Inactive'
-                       AND created_at::date BETWEEN %s AND %s
-                       ORDER BY name""", (from_date, to_date))
+                       ORDER BY name""")
 
     return fetchall(c)
 
