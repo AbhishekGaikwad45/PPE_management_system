@@ -128,15 +128,36 @@ def index():
                             can_create=can_create, can_edit=can_edit, can_delete=can_delete)
 
 
-def find_issue_department(cur, item_id, employee_department, qty):
+def find_issue_department(cur, item_id, employee_department, qty, user_dept=None, assigned_depts=None, is_admin=False):
     """
     Return the department from which stock should be issued.
     (receipts - issues + returns) can cover `qty`. Returns None if
-    no department in the group has enough stock.
+    no candidate department has enough stock.
+
+    Candidate search order:
+    1. employee_department
+    2. user_dept (primary department of logged-in user)
+    3. assigned_depts (additional assigned departments of logged-in user)
+    4. If is_admin, any department with stock available for item_id.
     """
-    # find_issue_department logic is simplified to just check the given department
-    # since we now just issue from the exact department the employee is assigned to.
-    departments = [employee_department]
+    departments = []
+
+    def _add(d):
+        if d and isinstance(d, str) and d.strip():
+            cleaned = d.strip()
+            if not any(x.lower() == cleaned.lower() for x in departments):
+                departments.append(cleaned)
+
+    _add(employee_department)
+    _add(user_dept)
+    if assigned_depts:
+        for d in assigned_depts:
+            _add(d)
+
+    if is_admin:
+        cur.execute("SELECT DISTINCT department FROM stock_receipts WHERE item_id=%s AND department IS NOT NULL", (item_id,))
+        for r in fetchall(cur):
+            _add(r["department"])
 
     for dept in departments:
 
@@ -211,14 +232,17 @@ def add():
         return_due = request.form.get('return_due_date') if returnable else None
 
         dept = session.get("department")
+        assigned = session.get("assigned_departments") or []
         is_admin = role in ["Admin", "Super Admin"]
 
         if not is_admin:
-            assigned = session.get("assigned_departments")
-            if assigned:
-                allowed_variants = [v.lower() for v in assigned]
-            else:
-                allowed_variants = [dept.lower()] if dept else []
+            allowed_variants = []
+            if dept:
+                allowed_variants.append(dept.lower())
+            for d in assigned:
+                if d and d.lower() not in allowed_variants:
+                    allowed_variants.append(d.lower())
+
             for emp_id in employee_ids:
                 c.execute("SELECT department FROM employees WHERE id=%s", (emp_id,))
                 emp = fetchone(c)
@@ -243,17 +267,20 @@ def add():
             employee_department = emp_row["department"] if emp_row else dept
 
             for item_id in item_ids:
+                c.execute("SELECT item_name FROM items WHERE id=%s", (item_id,))
+                item_row = fetchone(c)
+                item_name = item_row["item_name"] if item_row else f"ID #{item_id}"
 
-                # Try to issue from the exact employee department
+                # Issue stock from employee department, user department, or assigned departments
                 issue_department = find_issue_department(
-                    c, item_id, employee_department, qty
+                    c, item_id, employee_department, qty,
+                    user_dept=dept, assigned_depts=assigned, is_admin=is_admin
                 )
 
                 if not issue_department:
                     conn.rollback()
                     flash(
-                        f"Insufficient stock in '{employee_department}' "
-                        f"(or related departments) for this item.",
+                        f"Insufficient stock for '{item_name}' in department '{employee_department}' or assigned department(s).",
                         "danger"
                     )
                     return redirect(url_for("issues.index"))
@@ -362,14 +389,16 @@ def import_excel():
         return str(value).strip()
 
     dept = session.get('department')
+    assigned = session.get("assigned_departments") or []
     is_admin = role in ['Admin', 'Super Admin']
     allowed_variants = None
     if not is_admin:
-        assigned = session.get("assigned_departments")
-        if assigned:
-            allowed_variants = [v.lower() for v in assigned]
-        else:
-            allowed_variants = [dept.lower()] if dept else []
+        allowed_variants = []
+        if dept:
+            allowed_variants.append(dept.lower())
+        for d in assigned:
+            if d and d.lower() not in allowed_variants:
+                allowed_variants.append(d.lower())
 
     conn = get_db()
     c = conn.cursor()
@@ -490,12 +519,14 @@ def import_excel():
                 continue
 
             employee_department = emp['department']
-            issue_department = find_issue_department(c, item['id'], employee_department, qty)
+            issue_department = find_issue_department(
+                c, item['id'], employee_department, qty,
+                user_dept=dept, assigned_depts=assigned, is_admin=is_admin
+            )
             if not issue_department:
                 skipped += 1
                 errors.append(
-                    f"Row {row_num}: insufficient stock in '{employee_department}' "
-                    f"(or related departments) for '{item_name}' — skipped."
+                    f"Row {row_num}: insufficient stock for '{item_name}' in department '{employee_department}' or assigned department(s) — skipped."
                 )
                 continue
 

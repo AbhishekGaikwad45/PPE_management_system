@@ -70,9 +70,26 @@ def index():
     can_edit = has_permission('can_edit')
     can_delete = has_permission('can_delete')
 
+    departments_list = []
+    if is_admin:
+        try:
+            from modules.user_admin import get_departments
+            departments_list = get_departments()
+        except Exception:
+            c.execute("SELECT DISTINCT department FROM stock_receipts WHERE department IS NOT NULL AND TRIM(department) != ''")
+            departments_list = [r["department"] for r in fetchall(c)]
+    else:
+        dept = session.get("department")
+        if dept:
+            departments_list.append(dept)
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and not any(x.lower() == d.lower() for x in departments_list):
+                departments_list.append(d)
+
     return render_template('stock.html', items=items, receipts=receipts, today=date.today(),
                             can_create=can_create, can_edit=can_edit, can_delete=can_delete,
-                            from_date=from_date, to_date=to_date)
+                            from_date=from_date, to_date=to_date, departments_list=departments_list)
 
 
 # ── receive() route — can_create check add kela ─────────────────
@@ -92,11 +109,25 @@ def receive():
     remarks = request.form.get('remarks')
     received_by = session.get('user')
     role = session.get("role")
+    is_admin = role in ["Admin", "Super Admin"]
 
-    if role in ["Admin", "Super Admin"]:
-        department = request.form.get("department")
+    req_dept = request.form.get("department")
+    if is_admin:
+        department = req_dept.strip() if req_dept and req_dept.strip() else session.get("department")
     else:
-        department = session.get("department")
+        allowed_depts = []
+        user_dept = session.get("department")
+        if user_dept:
+            allowed_depts.append(user_dept)
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and not any(x.lower() == d.lower() for x in allowed_depts):
+                allowed_depts.append(d)
+
+        if req_dept and req_dept.strip() and any(x.lower() == req_dept.strip().lower() for x in allowed_depts):
+            department = req_dept.strip()
+        else:
+            department = user_dept
 
     c.execute("""INSERT INTO stock_receipts (receipt_date, item_id, qty, grn_no, received_by, remarks,department)
                  VALUES (%s,%s,%s,%s,%s,%s,%s)""",
@@ -130,10 +161,15 @@ def edit(id):
     grn_no = request.form.get('grn_no')
     qty = int(request.form.get('qty', 0))
     remarks = request.form.get('remarks')
+    req_dept = request.form.get('department')
     qty_diff = qty - old['qty']
 
-    c.execute("""UPDATE stock_receipts SET receipt_date=%s, grn_no=%s, qty=%s, remarks=%s
-                 WHERE id=%s""", (receipt_date, grn_no, qty, remarks, id))
+    if req_dept and req_dept.strip():
+        c.execute("""UPDATE stock_receipts SET receipt_date=%s, grn_no=%s, qty=%s, remarks=%s, department=%s
+                     WHERE id=%s""", (receipt_date, grn_no, qty, remarks, req_dept.strip(), id))
+    else:
+        c.execute("""UPDATE stock_receipts SET receipt_date=%s, grn_no=%s, qty=%s, remarks=%s
+                     WHERE id=%s""", (receipt_date, grn_no, qty, remarks, id))
     c.execute("UPDATE items SET stock = stock + %s WHERE id=%s", (qty_diff, old['item_id']))
 
     conn.commit()
@@ -331,9 +367,11 @@ def download():
     role = session.get("role")
     department = session.get("department")
     is_admin = role in ["Admin", "Super Admin"]
+
     query = """
         SELECT r.receipt_date,
             r.grn_no,
+            r.department,
             i.item_name,
             i.item_code,
             r.qty,
@@ -348,8 +386,16 @@ def download():
     params = []
 
     if not is_admin:
-        query += " AND r.department = %s"
-        params.append(department)
+        dept_variants = []
+        if department:
+            dept_variants.append(department.lower())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and d.lower() not in dept_variants:
+                dept_variants.append(d.lower())
+        if dept_variants:
+            query += " AND LOWER(r.department) = ANY(%s)"
+            params.append(dept_variants)
 
     if from_date:
         query += " AND r.receipt_date >= %s"
@@ -369,7 +415,7 @@ def download():
     ws = wb.active
     ws.title = 'Stock Receipts'
 
-    headers = ['Date', 'GRN No', 'Item Name', 'Item Code', 'Qty', 'Unit', 'Received By', 'Remarks']
+    headers = ['Date', 'GRN No', 'Department', 'Item Name', 'Item Code', 'Qty', 'Unit', 'Received By', 'Remarks']
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
     title_cell = ws.cell(1, 1, f'Stock Receipt Report ({from_date or "All"} to {to_date or "All"})')
@@ -389,19 +435,19 @@ def download():
     row_idx = 3
     for r in rows:
         values = [
-            r['receipt_date'], r['grn_no'] or '', r['item_name'], r['item_code'] or '',
+            r['receipt_date'], r['grn_no'] or '', r['department'] or '', r['item_name'], r['item_code'] or '',
             r['qty'], r.get('unit', '') or '', r['received_by'] or '', r['remarks'] or '',
         ]
         for col_idx, val in enumerate(values, start=1):
             cell = ws.cell(row_idx, col_idx, val)
             cell.border = _border
-            cell.alignment = _left if col_idx in (3, 8) else _ctr
+            cell.alignment = _left if col_idx in (4, 9) else _ctr
         row_idx += 1
 
     for col in range(1, len(headers) + 1):
         ws.column_dimensions[get_column_letter(col)].width = 16
-    ws.column_dimensions['C'].width = 24
-    ws.column_dimensions['H'].width = 28
+    ws.column_dimensions['D'].width = 24
+    ws.column_dimensions['I'].width = 28
     ws.freeze_panes = 'A3'
 
     buf = io.BytesIO()

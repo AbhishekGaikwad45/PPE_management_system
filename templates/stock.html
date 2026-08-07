@@ -41,7 +41,7 @@
       <table class="table table-hover mb-0">
         <thead>
           <tr>
-            <th>Date</th><th>GRN No</th><th>Item</th><th>Qty</th><th>Received By</th><th>Action</th>
+            <th>Date</th><th>GRN No</th><th>Department</th><th>Item</th><th>Qty</th><th>Received By</th><th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -49,6 +49,7 @@
           <tr>
             <td>{{ r.receipt_date }}</td>
             <td>{{ r.grn_no or '-' }}</td>
+            <td><span class="badge bg-secondary">{{ r.department or '-' }}</span></td>
             <td>{{ r.item_name }}</td>
             <td><span class="badge bg-success">+{{ r.qty }}</span></td>
             <td>{{ r.received_by or '-' }}</td>
@@ -92,6 +93,14 @@
                       <input type="text" name="grn_no" class="form-control" value="{{ r.grn_no or '' }}">
                     </div>
                     <div class="mb-3">
+                      <label class="form-label">Department *</label>
+                      <select name="department" class="form-select" required>
+                        {% for d in departments_list %}
+                        <option value="{{ d }}" {{ 'selected' if r.department and d.lower() == r.department.lower() }}>{{ d }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="mb-3">
                       <label class="form-label">Item</label>
                       <input type="text" class="form-control" value="{{ r.item_name }}" disabled>
                     </div>
@@ -116,7 +125,7 @@
 
           {% else %}
           <tr>
-            <td colspan="6" class="text-center text-muted py-4">No receipts yet.</td>
+            <td colspan="7" class="text-center text-muted py-4">No receipts yet.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -143,6 +152,14 @@
           <div class="mb-3">
             <label class="form-label">GRN Number</label>
             <input type="text" name="grn_no" class="form-control" placeholder="e.g. GRN-2024-001">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Department *</label>
+            <select name="department" class="form-select" required>
+              {% for d in departments_list %}
+              <option value="{{ d }}" {{ 'selected' if loop.first }}>{{ d }}</option>
+              {% endfor %}
+            </select>
           </div>
           <div class="mb-3">
             <label class="form-label">Item *</label>
