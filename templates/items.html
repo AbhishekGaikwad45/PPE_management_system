@@ -213,12 +213,19 @@
 
 {% block extra_js %}
 <script>
-document.getElementById('searchInput').addEventListener('keyup', function() {
-  const val = this.value.toLowerCase();
-  document.querySelectorAll('#itemTable tbody tr').forEach(row => {
-    row.style.display = row.textContent.toLowerCase().includes(val) ? '' : 'none';
+var itemSearchInput = document.getElementById('searchInput');
+if (itemSearchInput) {
+  var itemSearchTimer;
+  itemSearchInput.addEventListener('input', function() {
+    var val = this.value.toLowerCase().trim();
+    clearTimeout(itemSearchTimer);
+    itemSearchTimer = setTimeout(function() {
+      document.querySelectorAll('#itemTable tbody tr').forEach(function(row) {
+        row.style.display = row.textContent.toLowerCase().includes(val) ? '' : 'none';
+      });
+    }, 200);
   });
-});
+}
 
 // ── Import Excel Modal ───────────────────────────
 var importModalEl = document.getElementById('importExcelModal');

@@ -396,14 +396,18 @@
     });
   }
 
-  // ── Table search ──
+  // ── Table search with 200ms debounce ──
   var searchInput = document.getElementById('searchInput');
   if (searchInput) {
-    searchInput.addEventListener('keyup', function () {
-      var val = this.value.toLowerCase();
-      document.querySelectorAll('tr.issue-row').forEach(function (row) {
-        row.style.display = row.textContent.toLowerCase().includes(val) ? '' : 'none';
-      });
+    var ctrSearchTimer;
+    searchInput.addEventListener('input', function () {
+      var val = this.value.toLowerCase().trim();
+      clearTimeout(ctrSearchTimer);
+      ctrSearchTimer = setTimeout(function() {
+        document.querySelectorAll('tr.issue-row').forEach(function (row) {
+          row.style.display = row.textContent.toLowerCase().includes(val) ? '' : 'none';
+        });
+      }, 200);
     });
   }
 

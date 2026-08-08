@@ -497,10 +497,14 @@ function closeAllPanels() {
   ['emp', 'item'].forEach(closePanel);
 }
 
-/* ── Live search ────────────────────────────────────────────── */
+/* ── Live search with 150ms debounce ────────────────────────── */
+var filterTimers = {};
 function filterList(key) {
-  var val = document.getElementById(key + '-search').value;
-  renderList(key, val);
+  clearTimeout(filterTimers[key]);
+  filterTimers[key] = setTimeout(function() {
+    var val = document.getElementById(key + '-search').value;
+    renderList(key, val);
+  }, 150);
 }
 
 /* ── Apply selection ────────────────────────────────────────── */

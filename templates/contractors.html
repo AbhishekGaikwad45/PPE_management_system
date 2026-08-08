@@ -377,14 +377,18 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
 <script>
-  // ── 0. Contractor Master table search ───────────────────────
+  // ── 0. Contractor Master table search with 200ms debounce ──
   var masterSearchInput = document.getElementById('masterSearchInput');
   if (masterSearchInput) {
-    masterSearchInput.addEventListener('keyup', function () {
-      var val = this.value.toLowerCase();
-      document.querySelectorAll('#contractorMasterTable tbody tr.ctr-master-row').forEach(function (row) {
-        row.style.display = row.textContent.toLowerCase().includes(val) ? '' : 'none';
-      });
+    var masterSearchTimer;
+    masterSearchInput.addEventListener('input', function () {
+      var val = this.value.toLowerCase().trim();
+      clearTimeout(masterSearchTimer);
+      masterSearchTimer = setTimeout(function() {
+        document.querySelectorAll('#contractorMasterTable tbody tr.ctr-master-row').forEach(function (row) {
+          row.style.display = row.textContent.toLowerCase().includes(val) ? '' : 'none';
+        });
+      }, 200);
     });
   }
 
@@ -528,7 +532,11 @@
       }
     }
 
-    input.addEventListener('input', filterRows);
+    var ctrEmpSearchTimer;
+    input.addEventListener('input', function() {
+      clearTimeout(ctrEmpSearchTimer);
+      ctrEmpSearchTimer = setTimeout(filterRows, 150);
+    });
     if (clearBtn) {
       clearBtn.addEventListener('click', function () {
         input.value = '';

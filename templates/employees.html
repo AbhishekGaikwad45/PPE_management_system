@@ -18,6 +18,22 @@
     width: 100%;
     min-width: 1200px;
 }
+/* Disable hover and focus effects on search input bar */
+#searchInput,
+#searchInput:hover,
+#searchInput:focus,
+#searchInput:active,
+.input-group:hover #searchInput,
+.input-group:hover .input-group-text,
+.input-group:focus-within #searchInput,
+.input-group:focus-within .input-group-text {
+    box-shadow: none !important;
+    outline: none !important;
+    border-color: #ced4da !important;
+    background-color: #fff !important;
+    transition: none !important;
+    transform: none !important;
+}
 </style>
 {% endblock %}
 
@@ -377,23 +393,76 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
 <script>
-// ── 1. Auto-submit search form with debounce ──
+// ── 1. Seamless AJAX search (searches all pages with 0 window refreshes) ──
 (function() {
   var searchInput = document.getElementById('searchInput');
-  if (searchInput) {
-    // Ensure cursor is at the end if there's already text (due to autofocus)
-    if (searchInput.value) {
-      var val = searchInput.value;
-      searchInput.value = '';
-      searchInput.value = val;
-    }
+  if (!searchInput) return;
 
-    var timer;
-    searchInput.addEventListener('input', function() {
-      clearTimeout(timer);
-      timer = setTimeout(function() {
-        searchInput.form.submit();
-      }, 500); // 500ms debounce
+  var searchTimer;
+
+  function performSearch() {
+    var form = searchInput.form;
+    var formData = new FormData(form);
+    var params = new URLSearchParams(formData);
+    var searchUrl = form.action + '?' + params.toString();
+
+    fetch(searchUrl, {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function(res) { return res.text(); })
+    .then(function(html) {
+      var parser = new DOMParser();
+      var doc = parser.parseFromString(html, 'text/html');
+
+      // 1. Update Card Header count
+      var newHeader = doc.querySelector('.employee-card .card-header');
+      var curHeader = document.querySelector('.employee-card .card-header');
+      if (newHeader && curHeader) {
+        curHeader.innerHTML = newHeader.innerHTML;
+      }
+
+      // 2. Update Table & Modals container
+      var newWrapper = doc.querySelector('.employee-table-wrapper');
+      var curWrapper = document.querySelector('.employee-table-wrapper');
+      if (newWrapper && curWrapper) {
+        curWrapper.innerHTML = newWrapper.innerHTML;
+      }
+
+      // 3. Update Pagination Bar
+      var newPagin = doc.querySelector('#paginationBar');
+      var curPagin = document.querySelector('#paginationBar');
+      if (newPagin && curPagin) {
+        curPagin.innerHTML = newPagin.innerHTML;
+      } else if (newPagin && !curPagin) {
+        var cardBody = document.querySelector('.employee-card .card-body');
+        if (cardBody) cardBody.appendChild(newPagin.cloneNode(true));
+      } else if (!newPagin && curPagin) {
+        curPagin.remove();
+      }
+
+      // 4. Update browser URL silently
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', searchUrl);
+      }
+
+      // 5. Re-bind Bulk Delete listeners
+      initBulkDelete();
+    })
+    .catch(function(err) {
+      console.error('Search error:', err);
+    });
+  }
+
+  searchInput.addEventListener('input', function() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(performSearch, 300);
+  });
+
+  if (searchInput.form) {
+    searchInput.form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      clearTimeout(searchTimer);
+      performSearch();
     });
   }
 })();
@@ -418,19 +487,6 @@ if (addModalEl) {
     initChoices('#addDept, #addContr');
   });
 }
-
-document.querySelectorAll('[id^="editModal"]').forEach(function (modal) {
-  modal.addEventListener('shown.bs.modal', function () {
-    modal.querySelectorAll('.choices-single').forEach(function (el) {
-      // if (!el._choices) {
-      //   el._choices = new Choices(el, {
-      //     searchEnabled: true, itemSelectText: '', shouldSort: false,
-      //     searchPlaceholderValue: 'Search...'
-      //   });
-      // }
-    });
-  });
-});
 
 // ── 3. Import Excel Modal ───────────────
 var importModalEl = document.getElementById('importExcelModal');
@@ -502,78 +558,49 @@ if (importModalEl) {
 }
 
 // ── 4. Bulk Delete Logic ────────────────────
-var selectAll = document.getElementById('selectAll');
-var empCheckboxes = document.querySelectorAll('.emp-checkbox');
-var bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
-var bulkDeleteCount = document.getElementById('bulkDeleteCount');
+function initBulkDelete() {
+  var selectAll = document.getElementById('selectAll');
+  var empCheckboxes = document.querySelectorAll('.emp-checkbox');
+  var bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+  var bulkDeleteCount = document.getElementById('bulkDeleteCount');
 
-function updateBulkDeleteBtn() {
-  if (!bulkDeleteBtn) return;
-  var checked = document.querySelectorAll('.emp-checkbox:checked').length;
-  if (checked > 0) {
-    bulkDeleteCount.textContent = checked;
-    bulkDeleteBtn.classList.remove('d-none');
-  } else {
-    bulkDeleteBtn.classList.add('d-none');
+  function updateBulkDeleteBtn() {
+    if (!bulkDeleteBtn) return;
+    var checked = document.querySelectorAll('.emp-checkbox:checked').length;
+    if (checked > 0) {
+      bulkDeleteCount.textContent = checked;
+      bulkDeleteBtn.classList.remove('d-none');
+    } else {
+      bulkDeleteBtn.classList.add('d-none');
+    }
   }
-}
 
-if (selectAll) {
-  selectAll.addEventListener('change', function() {
-    var isChecked = this.checked;
-    empCheckboxes.forEach(function(cb) {
-      cb.checked = isChecked;
-    });
-    updateBulkDeleteBtn();
-  });
-}
+  if (selectAll) {
+    selectAll.checked = false;
+    selectAll.onchange = function() {
+      var isChecked = this.checked;
+      document.querySelectorAll('.emp-checkbox').forEach(function(cb) {
+        cb.checked = isChecked;
+      });
+      updateBulkDeleteBtn();
+    };
+  }
 
-empCheckboxes.forEach(function(cb) {
-  cb.addEventListener('change', function() {
-    if (!this.checked && selectAll) {
-      selectAll.checked = false;
-    } else if (document.querySelectorAll('.emp-checkbox:checked').length === empCheckboxes.length && selectAll) {
-      selectAll.checked = true;
-    }
-    updateBulkDeleteBtn();
-  });
-});
-
-if (bulkDeleteBtn) {
-  bulkDeleteBtn.addEventListener('click', function() {
-    var checkedBoxes = document.querySelectorAll('.emp-checkbox:checked');
-    if (checkedBoxes.length === 0) return;
-    
-    if (!confirm('Are you sure you want to delete ' + checkedBoxes.length + ' selected employee(s)?')) {
-      return;
-    }
-    
-    var ids = [];
-    checkedBoxes.forEach(function(cb) { ids.push(parseInt(cb.value)); });
-    
-    bulkDeleteBtn.disabled = true;
-    bulkDeleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Deleting...';
-    
-    fetch('{{ url_for("employees.bulk_delete") }}', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emp_ids: ids })
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success) {
-        window.location.reload();
-      } else {
-        alert(data.message || 'Error occurred during bulk delete.');
-        window.location.reload();
+  document.querySelectorAll('.emp-checkbox').forEach(function(cb) {
+    cb.onchange = function() {
+      if (!this.checked && selectAll) {
+        selectAll.checked = false;
+      } else if (document.querySelectorAll('.emp-checkbox:checked').length === document.querySelectorAll('.emp-checkbox').length && selectAll) {
+        selectAll.checked = true;
       }
-    })
-    .catch(err => {
-      alert('Network error occurred.');
-      window.location.reload();
-    });
+      updateBulkDeleteBtn();
+    };
   });
+
+  updateBulkDeleteBtn();
 }
+
+initBulkDelete();
 
 </script>
 {% endblock %}
