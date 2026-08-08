@@ -112,7 +112,7 @@ def index():
     params = []
 
     if not is_admin and dept_variants:
-        query += " AND LOWER(TRIM(e.department)) = ANY(%s)"
+        query += " AND LOWER(TRIM(COALESCE(NULLIF(TRIM(e.department), ''), c.department))) = ANY(%s)"
         params.append(dept_variants)
 
     query += " ORDER BY e.name"
@@ -710,27 +710,48 @@ def import_excel():
 # ─────────────────────── IMPORT TEMPLATE DOWNLOAD ───────────────────────
 @contractor_issues_bp.route('/contractor-issues/import-template')
 def download_import_template():
-    """Returns an Excel template with Data Validation for Item Name (from items master sheet)
-    and Returnable fields, scoped to the logged in user's department."""
+    """Returns an Excel template with empty Sheet 1 where selecting/entering an Employee Name or Emp Code
+    automatically populates Emp Code, Name, Department, and Contractor using Excel formulas pointing to 'employee master'."""
     if 'user' not in session:
         return redirect(url_for('auth.login'))
 
     conn = get_db()
     c = conn.cursor()
-    role = session.get('role')
-    dept = session.get('department')
-    is_admin = role in ['Admin', 'Super Admin']
 
-    dept_variants = get_user_dept_variants()
+    # Query users table directly for logged-in user's primary department and assigned_departments
+    user_id = session.get('user_id')
+    username = session.get('user')
 
-    if not is_admin and dept_variants:
+    c.execute("""
+        SELECT department, assigned_departments
+        FROM users
+        WHERE id = %s OR username = %s
+    """, (user_id, username))
+    u_row = fetchone(c)
+
+    user_depts = []
+    if u_row:
+        if u_row.get('department'):
+            user_depts.append(u_row['department'].strip())
+        for d in (u_row.get('assigned_departments') or []):
+            if d and d.strip():
+                user_depts.append(d.strip())
+
+    user_dept_variants = []
+    for d in user_depts:
+        d_lower = d.lower()
+        if d_lower not in user_dept_variants:
+            user_dept_variants.append(d_lower)
+
+    # 1. Fetch Items for Item Master
+    if user_dept_variants:
         c.execute("""
             SELECT DISTINCT i.item_name
             FROM items i
             LEFT JOIN stock_receipts r ON r.item_id = i.id
             WHERE LOWER(r.department) = ANY(%s) OR LOWER(i.added_by_department) = ANY(%s)
             ORDER BY i.item_name
-        """, (dept_variants, dept_variants))
+        """, (user_dept_variants, user_dept_variants))
         items_rows = fetchall(c)
         if not items_rows:
             c.execute("SELECT item_name FROM items ORDER BY item_name")
@@ -738,6 +759,31 @@ def download_import_template():
     else:
         c.execute("SELECT item_name FROM items ORDER BY item_name")
         items_rows = fetchall(c)
+
+    # 2. Fetch Active Employees for Employee Master Sheet
+    query_emp = """
+        SELECT DISTINCT
+            e.emp_code,
+            e.name,
+            COALESCE(NULLIF(TRIM(e.department), ''), c.department, '') AS department,
+            COALESCE(c.name, e.contractor, '') AS contractor
+        FROM employees e
+        LEFT JOIN contractors c
+            ON UPPER(TRIM(c.name)) = UPPER(TRIM(e.contractor))
+        WHERE e.status = 'Active'
+          AND NOT EXISTS (
+              SELECT 1 FROM deleted_contractors dc WHERE UPPER(TRIM(dc.name)) = UPPER(TRIM(c.name))
+          )
+    """
+    params_emp = []
+    if user_dept_variants:
+        query_emp += " AND LOWER(TRIM(COALESCE(NULLIF(TRIM(e.department), ''), c.department, ''))) = ANY(%s)"
+        params_emp.append(user_dept_variants)
+
+    query_emp += " ORDER BY e.name"
+    c.execute(query_emp, tuple(params_emp))
+    emp_rows = fetchall(c)
+
     conn.close()
 
     wb = Workbook()
@@ -753,12 +799,34 @@ def download_import_template():
         ws_items.cell(idx, 1, row['item_name'])
 
     items_count = len(items_rows)
+    items_max_row = max(2, items_count + 1)
 
+    # Sheet 3: employee master
+    ws_emp_master = wb.create_sheet(title='employee master')
+    emp_headers = ['Emp Code', 'Name', 'Department', 'Contractor']
+    for idx, h in enumerate(emp_headers, start=1):
+        cell = ws_emp_master.cell(1, idx, h)
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill('solid', fgColor='1A3A5C')
+
+    for row_idx, emp in enumerate(emp_rows, start=2):
+        ws_emp_master.cell(row_idx, 1, emp['emp_code'] or '')
+        ws_emp_master.cell(row_idx, 2, emp['name'] or '')
+        ws_emp_master.cell(row_idx, 3, emp['department'] or '')
+        ws_emp_master.cell(row_idx, 4, emp['contractor'] or '')
+
+    for col_idx, w in enumerate([16, 28, 20, 28], start=1):
+        ws_emp_master.column_dimensions[get_column_letter(col_idx)].width = w
+
+    emp_count = len(emp_rows)
+    emp_max_row = max(2, emp_count + 1)
+
+    # Main Sheet (Sheet 1) setup
     headers = [
         'Issue Date', 'Emp Code', 'Name', 'Department', 'Contractor',
         'Item Name', 'Qty', 'Returnable', 'Return Due Date', 'Remarks'
     ]
-    col_widths = [14, 14, 28, 20, 28, 24, 8, 12, 16, 40]
+    col_widths = [14, 16, 30, 20, 28, 24, 8, 12, 16, 40]
 
     hdr_font  = Font(bold=True, color='FFFFFF', size=11)
     hdr_fill  = PatternFill('solid', fgColor='1A3A5C')
@@ -774,32 +842,54 @@ def download_import_template():
 
     ws.row_dimensions[1].height = 22
 
-    # Add Data Validation for Item Name (Column F) referencing 'items master'!$A$2:$A$N
-    if items_count > 0:
-        max_row = items_count + 1
-        dv_item = DataValidation(type="list", formula1=f"'items master'!$A$2:$A${max_row}", allow_blank=True)
-        ws.add_data_validation(dv_item)
-        dv_item.add("F2:F1000")
+    # Data Validations for Sheet 1
+    # 1. Emp Code Dropdown (Column B)
+    if emp_count > 0:
+        dv_emp_code = DataValidation(type="list", formula1=f"'employee master'!$A$2:$A${emp_max_row}", allow_blank=True)
+        ws.add_data_validation(dv_emp_code)
+        dv_emp_code.add("B2:B500")
 
-    # Add Data Validation for Returnable (Column H) -> Yes, No
+        # 2. Name Dropdown (Column C)
+        dv_emp_name = DataValidation(type="list", formula1=f"'employee master'!$B$2:$B${emp_max_row}", allow_blank=True)
+        ws.add_data_validation(dv_emp_name)
+        dv_emp_name.add("C2:C500")
+
+    # 3. Item Name Dropdown (Column F)
+    if items_count > 0:
+        dv_item = DataValidation(type="list", formula1=f"'items master'!$A$2:$A${items_max_row}", allow_blank=True)
+        ws.add_data_validation(dv_item)
+        dv_item.add("F2:F500")
+
+    # 4. Returnable Dropdown (Column H)
     dv_ret = DataValidation(type="list", formula1='"Yes,No"', allow_blank=True)
     ws.add_data_validation(dv_ret)
-    dv_ret.add("H2:H1000")
+    dv_ret.add("H2:H500")
 
-    # Example row
-    example_item = items_rows[0]['item_name'] if items_rows else 'Helmet'
-    example = [
-        '2026-08-01', 'CIPD003680', 'AAKASH CHANDRAKANT PATIL',
-        dept or 'Operations', 'R J Enterprises', example_item,
-        1, 'Yes', '2026-09-01', 'Site work'
-    ]
-    eg_align = Alignment(horizontal='left', vertical='center')
-    eg_fill  = PatternFill('solid', fgColor='EEF2FF')
-    for col_idx, val in enumerate(example, start=1):
-        cell = ws.cell(2, col_idx, val)
-        cell.alignment = eg_align
-        cell.fill      = eg_fill
-        cell.border    = _border
+    # Prepare empty rows (Rows 2 to 200) with Excel formulas that auto-fetch details
+    cell_align = Alignment(horizontal='left', vertical='center')
+
+    for r_idx in range(2, 201):
+        # Cell B: Emp Code formula (if Name in C is entered, lookup Code in employee master)
+        ws.cell(r_idx, 2).value = (
+            f"=IFERROR(IF(C{r_idx}<>\"\", INDEX('employee master'!$A$2:$A${emp_max_row}, MATCH(C{r_idx}, 'employee master'!$B$2:$B${emp_max_row}, 0)), \"\"), \"\")"
+        )
+        # Cell C: Name formula (if Emp Code in B is entered, lookup Name in employee master)
+        ws.cell(r_idx, 3).value = (
+            f"=IFERROR(IF(B{r_idx}<>\"\", VLOOKUP(B{r_idx}, 'employee master'!$A$2:$D${emp_max_row}, 2, FALSE), \"\"), \"\")"
+        )
+        # Cell D: Department formula
+        ws.cell(r_idx, 4).value = (
+            f"=IFERROR(IF(B{r_idx}<>\"\", VLOOKUP(B{r_idx}, 'employee master'!$A$2:$D${emp_max_row}, 3, FALSE), IF(C{r_idx}<>\"\", INDEX('employee master'!$C$2:$C${emp_max_row}, MATCH(C{r_idx}, 'employee master'!$B$2:$B${emp_max_row}, 0)), \"\")), \"\")"
+        )
+        # Cell E: Contractor formula
+        ws.cell(r_idx, 5).value = (
+            f"=IFERROR(IF(B{r_idx}<>\"\", VLOOKUP(B{r_idx}, 'employee master'!$A$2:$D${emp_max_row}, 4, FALSE), IF(C{r_idx}<>\"\", INDEX('employee master'!$D$2:$D${emp_max_row}, MATCH(C{r_idx}, 'employee master'!$B$2:$B${emp_max_row}, 0)), \"\")), \"\")"
+        )
+
+        for col_idx in range(1, len(headers) + 1):
+            c_cell = ws.cell(r_idx, col_idx)
+            c_cell.alignment = cell_align
+            c_cell.border = _border
 
     ws.freeze_panes = 'A2'
 
@@ -811,3 +901,5 @@ def download_import_template():
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         headers={'Content-Disposition': 'attachment; filename="contractor_issue_import_template.xlsx"'},
     )
+
+
