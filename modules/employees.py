@@ -175,7 +175,7 @@ def add():
     c = conn.cursor()
     try:
         emp_code = request.form['emp_code']
-        c.execute("INSERT INTO employees (emp_code,name,department,contractor,designation,status) VALUES (%s,%s,%s,%s,%s,%s)",
+        c.execute("INSERT INTO employees (emp_code,name,department,contractor,designation,status,entry_date) VALUES (%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)",
                   (emp_code, request.form['name'], request.form['department'],
                    request.form.get('contractor',''), request.form.get('designation',''), 'Active'))
         # ← ADD — manually re-adding someone clears any old tombstone for
@@ -219,6 +219,11 @@ def edit(id):
         print(request.form)
         if not department:
             department = old["department"]
+        c.execute("SELECT status FROM employees WHERE id=%s", (id,))
+        old_emp = fetchone(c)
+        old_status = old_emp.get('status') if old_emp else None
+        new_status = request.form.get("status")
+
         c.execute("""
             UPDATE employees
             SET
@@ -227,7 +232,12 @@ def edit(id):
                 department=%s,
                 contractor=%s,
                 designation=%s,
-                status=%s
+                status=%s,
+                inactive_date = CASE
+                    WHEN %s = 'Inactive' AND (%s IS NULL OR %s != 'Inactive') THEN CURRENT_TIMESTAMP
+                    WHEN %s = 'Active' THEN NULL
+                    ELSE inactive_date
+                END
             WHERE id=%s
         """,
         (
@@ -236,7 +246,9 @@ def edit(id):
             department,
             request.form.get("contractor"),
             request.form.get("designation"),
-            request.form.get("status"),
+            new_status,
+            new_status, old_status, old_status,
+            new_status,
             id
         ))
 
@@ -822,8 +834,8 @@ def delete_contractor(contractor_id):
             # 4. Mark those employees as Inactive so they vanish from
             #    the UI immediately (without hard-deleting issue history).
             c.execute("""
-                UPDATE employees SET status='Inactive'
-                WHERE LOWER(TRIM(contractor)) = LOWER(TRIM(%s))
+                UPDATE employees SET status='Inactive', inactive_date=CURRENT_TIMESTAMP
+                WHERE LOWER(TRIM(contractor)) = LOWER(TRIM(%s)) AND (inactive_date IS NULL OR status != 'Inactive')
             """, (ctr_name,))
 
         # 5. Delete the contractor record itself.

@@ -320,7 +320,7 @@ def sync_employees():
             all_active = fetchall(pg_cursor)
             codes_to_deactivate = [r['emp_code'] for r in all_active if r['emp_code'] not in seen_emp_codes]
             for code in codes_to_deactivate:
-                pg_cursor.execute("UPDATE employees SET status='Inactive' WHERE emp_code=%s", (code,))
+                pg_cursor.execute("UPDATE employees SET status='Inactive', inactive_date=CURRENT_TIMESTAMP WHERE emp_code=%s AND (inactive_date IS NULL OR status != 'Inactive')", (code,))
                 deactivated += 1
 
         pg.commit()
