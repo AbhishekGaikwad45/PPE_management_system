@@ -112,16 +112,20 @@ def get_report_data(c, report_type, from_date, to_date, filter_id=None, dept_var
 
     elif report_type == 'inactive_employee':
         if dept_variants:
-            c.execute("""SELECT emp_code, name, department, contractor, designation, category
+            c.execute("""SELECT emp_code, name, department, contractor, designation, category,
+                                TO_CHAR(created_at, 'YYYY-MM-DD') as created_date
                        FROM employees
                        WHERE status = 'Inactive'
+                       AND created_at::date BETWEEN %s::date AND %s::date
                        AND LOWER(department) = ANY(%s)
-                       ORDER BY name""", (dept_variants,))
+                       ORDER BY name""", (from_date, to_date, dept_variants))
         else:
-            c.execute("""SELECT emp_code, name, department, contractor, designation, category
+            c.execute("""SELECT emp_code, name, department, contractor, designation, category,
+                                TO_CHAR(created_at, 'YYYY-MM-DD') as created_date
                        FROM employees
                        WHERE status = 'Inactive'
-                       ORDER BY name""")
+                       AND created_at::date BETWEEN %s::date AND %s::date
+                       ORDER BY name""", (from_date, to_date))
 
     return fetchall(c)
 
