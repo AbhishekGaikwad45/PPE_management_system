@@ -19,7 +19,38 @@
 
   <div class="col-12">
     <div class="card">
-      <div class="card-header"><i class="fas fa-check-double me-2"></i>Return History</div>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-check-double me-2"></i>Return History</span>
+      </div>
+      <div class="card-body bg-light border-bottom p-3">
+        <form method="GET" action="{{ url_for('returns.index') }}" class="row g-2 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label small text-muted mb-1">Department</label>
+            <select name="department" class="form-select form-select-sm" onchange="this.form.submit()">
+              <option value="">All Assigned Departments</option>
+              {% for d in departments_list %}
+              <option value="{{ d }}" {% if selected_dept == d %}selected{% endif %}>{{ d }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-muted mb-1">Search (Individual / Item)</label>
+            <input type="text" name="search" class="form-control form-control-sm" placeholder="Employee name, code, remarks..." value="{{ search_query or '' }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-muted mb-1">From Date</label>
+            <input type="date" name="from_date" class="form-control form-control-sm" value="{{ from_date or '' }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-muted mb-1">To Date</label>
+            <input type="date" name="to_date" class="form-control form-control-sm" value="{{ to_date or '' }}">
+          </div>
+          <div class="col-md-2 d-flex gap-1">
+            <button type="submit" class="btn btn-sm btn-primary flex-grow-1"><i class="fas fa-search me-1"></i>Filter</button>
+            <a href="{{ url_for('returns.index') }}" class="btn btn-sm btn-outline-secondary" title="Reset Filters"><i class="fas fa-undo"></i></a>
+          </div>
+        </form>
+      </div>
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-hover mb-0">
@@ -27,6 +58,8 @@
               <tr>
                 <th>Date</th>
                 <th>Item</th>
+                <th>Department</th>
+                <th>Employee / Individual</th>
                 <th>Qty (No)</th>
                 <th>Qty (Kg)</th>
                 <th>Condition</th>
@@ -42,6 +75,14 @@
               <tr>
                 <td>{{ r.return_date }}</td>
                 <td>{{ r.item_name }}</td>
+                <td><span class="badge bg-light text-dark border">{{ r.department or '-' }}</span></td>
+                <td>
+                  {% if r.employee_name %}
+                    <strong>{{ r.employee_name }}</strong> <small class="text-muted">({{ r.emp_code }})</small>
+                  {% else %}
+                    <span class="text-muted">-</span>
+                  {% endif %}
+                </td>
                 <td>{{ r.qty_no if r.qty_no else '-' }}</td>
                 <td>{{ r.qty_kg if r.qty_kg else '-' }}</td>
                 <td>
@@ -70,7 +111,7 @@
                 {% endif %}
               </tr>
               {% else %}
-              <tr><td colspan="8" class="text-center text-muted py-4">No records yet.</td></tr>
+              <tr><td colspan="10" class="text-center text-muted py-4">No records found matching filters.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -92,6 +133,21 @@
       </div>
       <form method="POST" action="{{ url_for('returns.add_disposal') }}">
         <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label">Department</label>
+            <select name="department" class="form-select" required>
+              {% if not departments_list %}
+              <option value="" disabled selected>No department assigned</option>
+              {% elif departments_list|length == 1 %}
+              <option value="{{ departments_list[0] }}" selected>{{ departments_list[0] }}</option>
+              {% else %}
+              <option value="" disabled selected>Select Department</option>
+              {% for d in departments_list %}
+              <option value="{{ d }}">{{ d }}</option>
+              {% endfor %}
+              {% endif %}
+            </select>
+          </div>
           <div class="mb-2">
             <label class="form-label">PPE Type</label>
             <select name="item_id" class="form-select" required>
@@ -141,6 +197,14 @@
       </div>
       <form method="POST" action="{{ url_for('returns.edit', id=r.id) }}">
         <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label">Department</label>
+            <select name="department" class="form-select" required>
+              {% for d in departments_list %}
+              <option value="{{ d }}" {% if r.department and d.lower() == r.department.lower() %}selected{% endif %}>{{ d }}</option>
+              {% endfor %}
+            </select>
+          </div>
           <div class="mb-2">
             <label class="form-label">PPE Type</label>
             <input type="text" class="form-control" value="{{ r.item_name }}" disabled>

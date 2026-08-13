@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash
 from database.db import get_db, fetchall, fetchone
 from datetime import date
-from modules.user_admin import has_permission
+from modules.user_admin import has_permission, get_user_dept_variants
 
 returns_bp = Blueprint('returns', __name__)
 
@@ -15,13 +15,91 @@ def index():
     c.execute("SELECT id, item_name FROM items ORDER BY item_name")
     items = fetchall(c)
 
-    c.execute("""
-        SELECT rr.*, i.item_name
+    role = session.get('role')
+    is_admin = role in ['Admin', 'Super Admin']
+    dept_variants = get_user_dept_variants()
+
+    # Build departments_list for filter dropdown
+    departments_list = []
+    if is_admin:
+        try:
+            from modules.user_admin import get_departments
+            departments_list = get_departments()
+        except Exception:
+            c.execute("SELECT DISTINCT department FROM departments ORDER BY department")
+            departments_list = [r['department'] for r in fetchall(c) if r.get('department')]
+    else:
+        dept = session.get("department")
+        if dept:
+            departments_list.append(dept.strip())
+        assigned = session.get("assigned_departments") or []
+        for d in assigned:
+            if d and not any(x.lower() == d.strip().lower() for x in departments_list):
+                departments_list.append(d.strip())
+
+    selected_dept = request.args.get('department', '').strip()
+    search_query = request.args.get('search', '').strip()
+    from_date = request.args.get('from_date', '').strip()
+    to_date = request.args.get('to_date', '').strip()
+
+    query = """
+        SELECT rr.*, i.item_name, e.emp_code, e.name AS employee_name,
+               COALESCE(NULLIF(TRIM(rr.department), ''), NULLIF(TRIM(e.department), ''), NULLIF(TRIM(ir.department), ''), NULLIF(TRIM(i.added_by_department), '')) AS department
         FROM return_register rr
         JOIN items i ON rr.item_id = i.id
-        ORDER BY rr.return_date DESC, rr.id DESC
-        LIMIT 50
-    """)
+        LEFT JOIN employees e ON rr.employee_id = e.id
+        LEFT JOIN issue_register ir ON rr.issue_id = ir.id
+        WHERE (rr.is_deleted IS FALSE OR rr.is_deleted IS NULL)
+    """
+    params = []
+
+    # Non-admin user can only access their assigned departments
+    if not is_admin:
+        if dept_variants:
+            query += """ AND (
+                LOWER(TRIM(rr.department)) = ANY(%s)
+                OR LOWER(TRIM(e.department)) = ANY(%s)
+                OR LOWER(TRIM(ir.department)) = ANY(%s)
+                OR LOWER(TRIM(i.added_by_department)) = ANY(%s)
+            )"""
+            params.extend([dept_variants, dept_variants, dept_variants, dept_variants])
+        else:
+            query += " AND 1=0"
+
+    # Specific department filter if selected
+    if selected_dept:
+        selected_lower = [selected_dept.lower()]
+        query += """ AND (
+            LOWER(TRIM(rr.department)) = ANY(%s)
+            OR LOWER(TRIM(e.department)) = ANY(%s)
+            OR LOWER(TRIM(ir.department)) = ANY(%s)
+            OR LOWER(TRIM(i.added_by_department)) = ANY(%s)
+        )"""
+        params.extend([selected_lower, selected_lower, selected_lower, selected_lower])
+
+    # Date range filters
+    if from_date:
+        query += " AND rr.return_date >= %s"
+        params.append(from_date)
+    if to_date:
+        query += " AND rr.return_date <= %s"
+        params.append(to_date)
+
+    # Search filter (employee name/code, received_by, item_name, remarks)
+    if search_query:
+        query += """ AND (
+            LOWER(i.item_name) LIKE %s
+            OR LOWER(COALESCE(e.name, '')) LIKE %s
+            OR LOWER(COALESCE(e.emp_code, '')) LIKE %s
+            OR LOWER(COALESCE(rr.received_by, '')) LIKE %s
+            OR LOWER(COALESCE(rr.remarks, '')) LIKE %s
+        )"""
+        pattern = f"%{search_query.lower()}%"
+        params.extend([pattern, pattern, pattern, pattern, pattern])
+
+    query += " ORDER BY rr.return_date DESC, rr.id DESC LIMIT 100"
+
+    c.execute(query, tuple(params))
     returns = fetchall(c)
     conn.close()
 
@@ -30,7 +108,9 @@ def index():
     can_delete = has_permission('can_delete')
 
     return render_template('returns.html', items=items, returns=returns, today=date.today(),
-                            can_create=can_create, can_edit=can_edit, can_delete=can_delete)
+                            can_create=can_create, can_edit=can_edit, can_delete=can_delete,
+                            departments_list=departments_list, selected_dept=selected_dept,
+                            search_query=search_query, from_date=from_date, to_date=to_date)
 
 
 @returns_bp.route('/returns/add-disposal', methods=['POST'])
@@ -56,10 +136,20 @@ def add_disposal():
             conn.close()
             return redirect(url_for('returns.index'))
 
+        dept_input = request.form.get('department', '').strip()
+        dept_variants = get_user_dept_variants()
+        if dept_variants:
+            if not dept_input or dept_input.lower() not in dept_variants:
+                flash("You can only add returns for your assigned department(s).", "danger")
+                conn.close()
+                return redirect(url_for('returns.index'))
+
+        target_dept = dept_input or session.get('department')
+
         c.execute("""
             INSERT INTO return_register
-                (return_date, employee_id, item_id, qty, qty_no, qty_kg, condition, received_by, remarks)
-            VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s)
+                (return_date, employee_id, item_id, qty, qty_no, qty_kg, condition, received_by, remarks, department)
+            VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             request.form['return_date'],
             item_id,
@@ -67,8 +157,9 @@ def add_disposal():
             qty_no,
             qty_kg,
             'Disposed',
-            session['full_name'],
-            request.form.get('remarks', '')
+            session.get('full_name', ''),
+            request.form.get('remarks', ''),
+            target_dept
         ))
 
         if qty_no:
@@ -94,12 +185,38 @@ def edit(id):
 
     conn = get_db(); c = conn.cursor()
     try:
-        c.execute("SELECT * FROM return_register WHERE id=%s", (id,))
+        c.execute("""
+            SELECT rr.*,
+                   COALESCE(NULLIF(TRIM(rr.department), ''), NULLIF(TRIM(e.department), ''), NULLIF(TRIM(ir.department), ''), NULLIF(TRIM(i.added_by_department), '')) AS dept
+            FROM return_register rr
+            JOIN items i ON rr.item_id = i.id
+            LEFT JOIN employees e ON rr.employee_id = e.id
+            LEFT JOIN issue_register ir ON rr.issue_id = ir.id
+            WHERE rr.id=%s AND (rr.is_deleted IS FALSE OR rr.is_deleted IS NULL)
+        """, (id,))
         old = fetchone(c)
         if not old:
             flash('Disposal record not found.', 'danger')
             conn.close()
             return redirect(url_for('returns.index'))
+
+        dept_variants = get_user_dept_variants()
+        if dept_variants:
+            rec_dept = (old.get('dept') or '').strip().lower()
+            if rec_dept and rec_dept not in dept_variants:
+                conn.close()
+                flash('You do not have permission to edit records outside your assigned department.', 'danger')
+                return redirect(url_for('returns.index'))
+
+        dept_input = request.form.get('department', '').strip()
+        if dept_input:
+            if dept_variants and dept_input.lower() not in dept_variants:
+                conn.close()
+                flash("You can only assign returns to your assigned department(s).", "danger")
+                return redirect(url_for('returns.index'))
+            target_dept = dept_input
+        else:
+            target_dept = old.get('department')
 
         qty_no_raw = request.form.get('qty_no', '').strip()
         qty_kg_raw = request.form.get('qty_kg', '').strip()
@@ -126,7 +243,7 @@ def edit(id):
 
         c.execute("""
             UPDATE return_register
-            SET return_date=%s, qty_no=%s, qty_kg=%s, qty=%s, remarks=%s
+            SET return_date=%s, qty_no=%s, qty_kg=%s, qty=%s, remarks=%s, department=%s
             WHERE id=%s
         """, (
             request.form['return_date'],
@@ -134,6 +251,7 @@ def edit(id):
             new_qty_kg,
             new_qty_no_val,
             request.form.get('remarks', ''),
+            target_dept,
             id
         ))
 
@@ -159,14 +277,30 @@ def delete(id):
 
     conn = get_db(); c = conn.cursor()
     try:
-        c.execute("SELECT * FROM return_register WHERE id=%s", (id,))
+        c.execute("""
+            SELECT rr.*,
+                   COALESCE(NULLIF(TRIM(rr.department), ''), NULLIF(TRIM(e.department), ''), NULLIF(TRIM(ir.department), ''), NULLIF(TRIM(i.added_by_department), '')) AS dept
+            FROM return_register rr
+            JOIN items i ON rr.item_id = i.id
+            LEFT JOIN employees e ON rr.employee_id = e.id
+            LEFT JOIN issue_register ir ON rr.issue_id = ir.id
+            WHERE rr.id=%s AND (rr.is_deleted IS FALSE OR rr.is_deleted IS NULL)
+        """, (id,))
         row = fetchone(c)
         if not row:
             flash('Disposal record not found.', 'danger')
             conn.close()
             return redirect(url_for('returns.index'))
 
-        c.execute("DELETE FROM return_register WHERE id=%s", (id,))
+        dept_variants = get_user_dept_variants()
+        if dept_variants:
+            rec_dept = (row.get('dept') or '').strip().lower()
+            if rec_dept and rec_dept not in dept_variants:
+                conn.close()
+                flash('You do not have permission to delete records outside your assigned department.', 'danger')
+                return redirect(url_for('returns.index'))
+
+        c.execute("UPDATE return_register SET is_deleted = TRUE WHERE id=%s", (id,))
 
         # Restore stock that was deducted at disposal time
         if row['qty_no']:
