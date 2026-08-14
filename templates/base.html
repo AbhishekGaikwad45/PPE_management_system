@@ -715,60 +715,80 @@
 
     <div class="nav-section">
       <div class="nav-section-title">Masters</div>
+      {% if has_permission('can_view', 'employees') %}
       <a class="nav-link {% if request.endpoint == 'employees.index' %}active{% endif %}"
         href="{{ url_for('employees.index') }}">
         <i class="fas fa-users"></i> <span>Employees</span>
       </a>
+      {% endif %}
+      {% if has_permission('can_view', 'contractors') %}
       <a class="nav-link {% if request.endpoint == 'employees.contractors' %}active{% endif %}"
         href="{{ url_for('employees.contractors') }}">
         <i class="fas fa-hard-hat"></i> <span>Contractors</span>
       </a>
+      {% endif %}
+      {% if has_permission('can_view', 'items') %}
       <a class="nav-link {% if 'items' in request.endpoint %}active{% endif %}" href="{{ url_for('items.index') }}">
         <i class="fas fa-boxes"></i> <span>Item Master</span>
       </a>
-      {% if session.get('role') in ['Admin', 'Super Admin'] %}
-      <a href="{{ url_for('department_stock.index') }}" class="nav-link">
-        <i class="fas fa-chart-bar me-2"></i> <span>Department Stock</span>
+      {% endif %}
+      {% if has_permission('can_view', 'department_stock') %}
+      <a href="{{ url_for('department_stock.index') }}" class="nav-link {% if 'department_stock' in request.endpoint %}active{% endif %}">
+        <i class="fas fa-warehouse me-2"></i> <span>Department Stock</span>
       </a>
       {% endif %}
     </div>
 
     <div class="nav-section">
       <div class="nav-section-title">Transactions</div>
+      {% if has_permission('can_view', 'stock') %}
       <a class="nav-link {% if request.endpoint == 'stock.index' %}active{% endif %}"
         href="{{ url_for('stock.index') }}">
         <i class="fas fa-truck-loading"></i> <span>Stock Receipt</span>
       </a>
+      {% endif %}
+      {% if has_permission('can_view', 'issues') %}
       <a class="nav-link {% if request.endpoint and request.endpoint.startswith('issues.') %}active{% endif %}"
         href="{{ url_for('issues.index') }}">
         <i class="fas fa-hand-holding"></i> <span>Issue PPE</span>
       </a>
+      {% endif %}
+      {% if has_permission('can_view', 'returns') %}
       <a class="nav-link {% if 'returns' in request.endpoint %}active{% endif %}" href="{{ url_for('returns.index') }}">
         <i class="fas fa-undo"></i> <span>Returns</span>
       </a>
+      {% endif %}
+      {% if has_permission('can_view', 'contractor_issues') %}
       <a class="nav-link {% if 'contractor_issues' in request.endpoint %}active{% endif %}"
         href="{{ url_for('contractor_issues.index') }}">
         <i class="fas fa-hard-hat"></i> <span>Provided by Contractor</span>
       </a>
+      {% endif %}
+      {% if has_permission('can_view', 'stock') %}
       <a class="nav-link {% if request.endpoint == 'stock.ledger' %}active{% endif %}"
         href="{{ url_for('stock.ledger') }}">
         <i class="fas fa-book"></i> <span>Stock Ledger</span>
       </a>
+      {% endif %}
     </div>
 
+    {% if has_permission('can_view', 'calibration') %}
     <div class="nav-section">
       <a class="nav-link {% if 'calibration' in request.endpoint %}active{% endif %}"
         href="{{ url_for('calibration.index') }}">
         <i class="fas fa-tools"></i> <span>Calibration</span>
       </a>
     </div>
+    {% endif %}
 
+    {% if has_permission('can_view', 'reports') %}
     <div class="nav-section">
       <div class="nav-section-title">Reports</div>
       <a class="nav-link {% if 'reports' in request.endpoint %}active{% endif %}" href="{{ url_for('reports.index') }}">
         <i class="fas fa-chart-bar"></i> <span>Reports & KPI</span>
       </a>
     </div>
+    {% endif %}
   </div>
 
   <!-- Main Content -->

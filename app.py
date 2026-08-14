@@ -45,6 +45,11 @@ app.register_blueprint(department_stock_bp)
 # Start auto sync scheduler (runs in background thread daily at 12:00 AM midnight with max 3 retries)
 start_auto_sync_scheduler()
 
+@app.context_processor
+def inject_permissions():
+    from modules.user_admin import has_permission
+    return dict(has_permission=has_permission)
+
 
 @app.errorhandler(Exception)
 def handle_unhandled_exception(e):

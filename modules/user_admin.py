@@ -28,6 +28,20 @@ ROLES = ['Admin', 'Super Admin', 'Safety Officer', 'Store Keeper', 'Viewer', 'De
 # Admin / Super Admin are excluded — they always have full access everywhere.
 ASSIGNABLE_ROLES = [r for r in ROLES if r not in ('Admin', 'Super Admin')]
 
+SYSTEM_MODULES = [
+    {'id': 'employees', 'name': 'Employees', 'icon': 'fas fa-users'},
+    {'id': 'contractors', 'name': 'Contractors', 'icon': 'fas fa-hard-hat'},
+    {'id': 'items', 'name': 'Item Master', 'icon': 'fas fa-boxes'},
+    {'id': 'department_stock', 'name': 'Department Stock', 'icon': 'fas fa-warehouse'},
+    {'id': 'stock', 'name': 'Stock Receipt', 'icon': 'fas fa-truck-loading'},
+    {'id': 'issues', 'name': 'Issue PPE', 'icon': 'fas fa-hand-holding'},
+    {'id': 'returns', 'name': 'Returns', 'icon': 'fas fa-undo'},
+    {'id': 'contractor_issues', 'name': 'Provided by Contractor', 'icon': 'fas fa-hard-hat'},
+    {'id': 'calibration', 'name': 'Calibration', 'icon': 'fas fa-tools'},
+    {'id': 'reports', 'name': 'Reports & KPI', 'icon': 'fas fa-chart-bar'},
+    {'id': 'logs', 'name': 'Activity & Error Logs', 'icon': 'fas fa-history'},
+]
+
 
 def get_departments():
     """Pulls the live list of departments from the `departments` table
@@ -119,24 +133,71 @@ def get_department_role_permissions(department=None):
         return result
 
 
-def has_permission(action, department=None):
+def get_module_permissions(department=None):
     """
-    action: 'can_create' | 'can_edit' | 'can_delete'
-    department: optional override — if not given, uses the current session
-                user's own department. If that user has no department
-                (None), falls back to the old global role_permissions table.
+    Returns { (role, module): {'can_view': bool, 'can_create': bool, 'can_edit': bool, 'can_delete': bool} }
+    For the specified department (or '' for global/legacy).
+    """
+    dept_str = department if department is not None else ''
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT role, module, can_view, can_create, can_edit, can_delete
+        FROM module_permissions
+        WHERE department = %s
+    """, (dept_str,))
+    rows = fetchall(c)
+    conn.close()
+    return {(r['role'], r['module']): r for r in rows}
+
+
+def has_permission(action, module=None, department=None):
+    """
+    action: 'can_view' | 'can_create' | 'can_edit' | 'can_delete'
+    module: optional module id e.g. 'employees', 'items', 'issues', etc.
+    department: optional department override — if not given, uses current session.
     """
     role = session.get('role')
     if role in ('Admin', 'Super Admin'):
         return True
 
     dept = department if department is not None else session.get('department')
+    dept_str = dept if dept else ''
+
+    if module:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT can_view, can_create, can_edit, can_delete
+            FROM module_permissions
+            WHERE role = %s AND module = %s AND (department = %s OR department = '')
+            ORDER BY CASE WHEN department != '' THEN 1 ELSE 2 END
+            LIMIT 1
+        """, (role, module, dept_str))
+        row = fetchone(c)
+        conn.close()
+
+        if row:
+            col_map = {
+                'view': 'can_view',
+                'can_view': 'can_view',
+                'create': 'can_create',
+                'can_create': 'can_create',
+                'edit': 'can_edit',
+                'can_edit': 'can_edit',
+                'delete': 'can_delete',
+                'can_delete': 'can_delete',
+            }
+            col = col_map.get(action, action)
+            return bool(row.get(col, False))
+
+    if action in ('view', 'can_view'):
+        return True
 
     if dept:
         perms = get_department_role_permissions(dept)
         return bool(perms.get(role, {}).get(action))
 
-    # No department context -> global/legacy role permission
     perms = get_role_permissions()
     return bool(perms.get(role, {}).get(action))
 
@@ -441,113 +502,293 @@ def delete_department():
     return redirect(url_for('users_admin.permissions'))
 
 
+def get_module_permissions(department=None):
+    """
+    Returns { (role, module): {'can_view': bool, 'can_create': bool, 'can_edit': bool, 'can_delete': bool} }
+    For the specified department (or '' for global/legacy).
+    """
+    dept_str = department if department is not None else ''
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT role, module, can_view, can_create, can_edit, can_delete
+        FROM module_permissions
+        WHERE department = %s
+    """, (dept_str,))
+    rows = fetchall(c)
+    conn.close()
+    return {(r['role'], r['module']): r for r in rows}
+
+
+def has_permission(action, module=None, department=None):
+    """
+    action: 'can_view' | 'can_create' | 'can_edit' | 'can_delete'
+    module: optional module id e.g. 'employees', 'items', 'issues', etc.
+    department: optional department override — if not given, uses current session.
+    """
+    role = session.get('role')
+    if role in ('Admin', 'Super Admin'):
+        return True
+
+    dept = department if department is not None else session.get('department')
+    dept_str = dept if dept else ''
+
+    if module:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT can_view, can_create, can_edit, can_delete
+            FROM module_permissions
+            WHERE role = %s AND module = %s AND (department = %s OR department = '')
+            ORDER BY CASE WHEN department != '' THEN 1 ELSE 2 END
+            LIMIT 1
+        """, (role, module, dept_str))
+        row = fetchone(c)
+        conn.close()
+
+        if row:
+            col_map = {
+                'view': 'can_view',
+                'can_view': 'can_view',
+                'create': 'can_create',
+                'can_create': 'can_create',
+                'edit': 'can_edit',
+                'can_edit': 'can_edit',
+                'delete': 'can_delete',
+                'can_delete': 'can_delete',
+            }
+            col = col_map.get(action, action)
+            return bool(row.get(col, False))
+
+    if action in ('view', 'can_view'):
+        return True
+
+    if dept:
+        perms = get_department_role_permissions(dept)
+        return bool(perms.get(role, {}).get(action))
+
+    perms = get_role_permissions()
+    return bool(perms.get(role, {}).get(action))
+
+
+def login_required(f):
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        if 'user' not in session:
+            return redirect(url_for('auth.login'))
+        return f(*args, **kwargs)
+    return wrapped
+
+
+def permission_required(action):
+    """Decorator factory — checks the dynamic department+role permission table
+    (falls back to global role_permissions for department-less users)."""
+    def decorator(f):
+        @wraps(f)
+        @login_required
+        def wrapped(*args, **kwargs):
+            if not has_permission(action):
+                flash('You do not have permission to perform this action.', 'danger')
+                return redirect(url_for('dashboard.index'))
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
+def admin_required(f):
+    """Restrict a route to Admin / Super Admin only (used for index + permissions page)."""
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        if 'user' not in session:
+            return redirect(url_for('auth.login'))
+        if session.get('role') not in ['Admin', 'Super Admin']:
+            flash('You do not have permission to access User Management.', 'danger')
+            return redirect(url_for('dashboard.index'))
+        return f(*args, **kwargs)
+    return wrapped
+
+
 # ---------- Admin: manage which role gets which permission, per department ----------
 
 PERMISSIONS_PAGE = """
 {% extends "base.html" %}
-{% block title %}Role Permissions{% endblock %}
-{% block page_title %}Role Permissions{% endblock %}
+{% block title %}Module Permissions{% endblock %}
+{% block page_title %}Module Permissions{% endblock %}
 {% block content %}
 
-<div class="row">
-  <!-- Department list -->
-  <div class="col-md-3 mb-3">
-    <div class="card">
-      <div class="card-header bg-light fw-bold">Departments</div>
-      <div class="list-group list-group-flush">
-        <a href="{{ url_for('users_admin.permissions') }}"
-           class="list-group-item list-group-item-action {% if not selected_department %}active{% endif %}">
-          All (No department / legacy)
-        </a>
-        {% for d in departments %}
-        <div class="list-group-item d-flex justify-content-between align-items-center {% if selected_department == d %}active{% endif %} p-0">
-          <a href="{{ url_for('users_admin.permissions', department=d) }}"
-             class="flex-grow-1 px-3 py-2 text-decoration-none {% if selected_department == d %}text-white{% else %}text-dark{% endif %}">
-            {{ d }}
-          </a>
-          <span class="px-2 d-flex">
-            <button type="button" class="btn btn-sm btn-link p-1"
-                    onclick="document.getElementById('renameForm_{{ loop.index }}').classList.toggle('d-none')"
-                    title="Rename">
-              <i class="fas fa-edit"></i>
-            </button>
-            <form method="POST" action="{{ url_for('users_admin.delete_department') }}" class="d-inline"
-                  onsubmit="return confirm('Delete department \'{{ d }}\'? It will not be re-created by the HR sync. This cannot be undone.');">
-              <input type="hidden" name="name" value="{{ d }}">
-              <button type="submit" class="btn btn-sm btn-link p-1 text-danger" title="Delete">
-                <i class="fas fa-trash"></i>
-              </button>
-            </form>
-          </span>
-        </div>
-        <div id="renameForm_{{ loop.index }}" class="list-group-item d-none">
-          <form method="POST" action="{{ url_for('users_admin.rename_department') }}" class="d-flex gap-1">
-            <input type="hidden" name="old_name" value="{{ d }}">
-            <input type="text" name="new_name" value="{{ d }}" class="form-control form-control-sm" required>
-            <button type="submit" class="btn btn-sm btn-jsw">Save</button>
-          </form>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-
-    <div class="card mt-3">
-      <div class="card-body">
-        <form method="POST" action="{{ url_for('users_admin.add_department') }}" class="d-flex gap-1">
-          <input type="text" name="name" class="form-control form-control-sm" placeholder="New department name" required>
-          <button type="submit" class="btn btn-sm btn-outline-primary">Add</button>
-        </form>
-      </div>
-    </div>
+<div class="card shadow-sm border-0 mb-4">
+  <div class="card-header bg-white py-3">
+    <h5 class="mb-0 fw-bold text-dark"><i class="fas fa-shield-alt text-primary me-2"></i>Module Permissions</h5>
   </div>
+  <div class="card-body">
+    <form method="GET" action="{{ url_for('users_admin.permissions') }}" id="filterForm" class="row g-2 align-items-center mb-3">
+      <div class="col-auto d-flex align-items-center gap-2">
+        <label class="fw-semibold small text-muted mb-0">Role:</label>
+        <select name="role" class="form-select form-select-sm fw-semibold" style="min-width: 170px;" onchange="this.form.submit()">
+          {% for r in assignable_roles %}
+          <option value="{{ r }}" {% if selected_role == r %}selected{% endif %}>{{ r }}</option>
+          {% endfor %}
+        </select>
+      </div>
 
-  <!-- Permission matrix for the selected department -->
-  <div class="col-md-9">
-    <div class="card">
-      <div class="card-header bg-light fw-bold">
-        {% if selected_department %}
-          Permissions for: {{ selected_department }}
-        {% else %}
-          Permissions for users with no department assigned (legacy / global)
-        {% endif %}
+      <div class="col-auto d-flex align-items-center gap-2">
+        <label class="fw-semibold small text-muted mb-0">Department:</label>
+        <select name="department" class="form-select form-select-sm" style="min-width: 200px;" onchange="this.form.submit()">
+          <option value="">All (Global / Legacy)</option>
+          {% for d in departments %}
+          <option value="{{ d }}" {% if selected_department == d %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
       </div>
-      <div class="card-body">
-        <form method="POST">
-          <input type="hidden" name="department" value="{{ selected_department or '' }}">
-          <table class="table">
-            <thead>
-              <tr><th>Role</th><th>Create</th><th>Edit</th><th>Delete</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Admin</td>
-                <td><input type="checkbox" disabled checked></td>
-                <td><input type="checkbox" disabled checked></td>
-                <td><input type="checkbox" disabled checked></td>
-              </tr>
-              <tr>
-                <td>Super Admin</td>
-                <td><input type="checkbox" disabled checked></td>
-                <td><input type="checkbox" disabled checked></td>
-                <td><input type="checkbox" disabled checked></td>
-              </tr>
-              {% for r in assignable_roles %}
-              <tr>
-                <td>{{ r }}</td>
-                <td><input type="checkbox" name="create_{{ r }}" {% if perms.get(r, {}).get('can_create') %}checked{% endif %}></td>
-                <td><input type="checkbox" name="edit_{{ r }}" {% if perms.get(r, {}).get('can_edit') %}checked{% endif %}></td>
-                <td><input type="checkbox" name="delete_{{ r }}" {% if perms.get(r, {}).get('can_delete') %}checked{% endif %}></td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-          <button type="submit" class="btn btn-jsw">Save Permissions</button>
-        </form>
+
+      <div class="col-auto">
+        <input type="text" id="moduleSearchInput" class="form-control form-control-sm" placeholder="Filter modules..." onkeyup="filterModulesTable()">
       </div>
-    </div>
+
+      <div class="col-auto d-flex gap-1 align-items-center">
+        <span class="small fw-semibold text-muted me-1">Bulk:</span>
+        <button type="button" class="btn btn-sm btn-light border" onclick="applyBulkAction('read')">Read Only</button>
+        <button type="button" class="btn btn-sm btn-light border" onclick="applyBulkAction('read_add_edit')">Read+Add+Edit</button>
+        <button type="button" class="btn btn-sm btn-light border" onclick="applyBulkAction('full')">Full Access</button>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="applyBulkAction('revoke')">Revoke All</button>
+      </div>
+
+      <div class="col-auto ms-auto">
+        <button type="submit" form="permissionsSaveForm" class="btn btn-sm btn-jsw px-3">
+          <i class="fas fa-save me-1"></i> Save Permissions
+        </button>
+      </div>
+    </form>
+
+    <form method="POST" action="{{ url_for('users_admin.permissions') }}" id="permissionsSaveForm">
+      <input type="hidden" name="role" value="{{ selected_role }}">
+      <input type="hidden" name="department" value="{{ selected_department or '' }}">
+
+      <div class="table-responsive border rounded bg-white" style="max-height: 600px; overflow-y: auto;">
+        <table class="table table-hover align-middle table-sm mb-0" id="permissionsTable">
+          <thead class="table-light sticky-top" style="z-index: 5;">
+            <tr>
+              <th style="width: 100px;">Code</th>
+              <th>Module Name</th>
+              <th class="text-center" style="width: 90px;">Read</th>
+              <th class="text-center" style="width: 90px;">Add</th>
+              <th class="text-center" style="width: 90px;">Edit</th>
+              <th class="text-center" style="width: 90px;">Delete</th>
+              <th class="text-center" style="width: 90px;">All</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for mod in system_modules %}
+            {% set m_perm = module_perms.get((selected_role, mod.id), {}) %}
+            {% set is_read = m_perm.get('can_view', True) %}
+            {% set is_add = m_perm.get('can_create', False) %}
+            {% set is_edit = m_perm.get('can_edit', False) %}
+            {% set is_delete = m_perm.get('can_delete', False) %}
+            {% set is_all = is_read and is_add and is_edit and is_delete %}
+            <tr class="module-row" data-name="{{ mod.name | lower }}" data-code="{{ mod.code | lower }}">
+              <td>
+                <span class="badge bg-primary px-2 py-1 font-monospace" style="font-size:11px;">{{ mod.code }}</span>
+              </td>
+              <td class="fw-medium text-dark">{{ mod.name }}</td>
+              <td class="text-center">
+                <input type="checkbox" class="form-check-input perm-cb cb-read cb-row-{{ mod.id }}" name="read_{{ mod.id }}" {% if is_read %}checked{% endif %} onchange="updateRowMaster('{{ mod.id }}')">
+              </td>
+              <td class="text-center">
+                <input type="checkbox" class="form-check-input perm-cb cb-add cb-row-{{ mod.id }}" name="add_{{ mod.id }}" {% if is_add %}checked{% endif %} onchange="updateRowMaster('{{ mod.id }}')">
+              </td>
+              <td class="text-center">
+                <input type="checkbox" class="form-check-input perm-cb cb-edit cb-row-{{ mod.id }}" name="edit_{{ mod.id }}" {% if is_edit %}checked{% endif %} onchange="updateRowMaster('{{ mod.id }}')">
+              </td>
+              <td class="text-center">
+                <input type="checkbox" class="form-check-input perm-cb cb-delete cb-row-{{ mod.id }}" name="delete_{{ mod.id }}" {% if is_delete %}checked{% endif %} onchange="updateRowMaster('{{ mod.id }}')">
+              </td>
+              <td class="text-center">
+                <input type="checkbox" class="form-check-input cb-master cb-master-{{ mod.id }}" id="master_{{ mod.id }}" {% if is_all %}checked{% endif %} onchange="toggleRowAll('{{ mod.id }}', this.checked)">
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-3 d-flex justify-content-between align-items-center">
+        <span class="small text-muted">Configuring permissions for Role: <strong class="text-dark">{{ selected_role }}</strong> | Department: <strong class="text-dark">{{ selected_department or 'All Access (Global / Legacy)' }}</strong></span>
+        <button type="submit" class="btn btn-jsw px-4">
+          <i class="fas fa-save me-1"></i> Save Permissions
+        </button>
+      </div>
+    </form>
   </div>
 </div>
 
+<script>
+function filterModulesTable() {
+  const query = document.getElementById('moduleSearchInput').value.toLowerCase().trim();
+  const rows = document.querySelectorAll('.module-row');
+  rows.forEach(row => {
+    const name = row.getAttribute('data-name');
+    const code = row.getAttribute('data-code');
+    if (name.includes(query) || code.includes(query)) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+}
+
+function toggleRowAll(modId, state) {
+  const cbs = document.querySelectorAll('.cb-row-' + modId);
+  cbs.forEach(cb => cb.checked = state);
+}
+
+function updateRowMaster(modId) {
+  const cbs = document.querySelectorAll('.cb-row-' + modId);
+  let allChecked = true;
+  cbs.forEach(cb => {
+    if (!cb.checked) allChecked = false;
+  });
+  const master = document.querySelector('.cb-master-' + modId);
+  if (master) master.checked = allChecked;
+}
+
+function applyBulkAction(type) {
+  const rows = document.querySelectorAll('.module-row');
+  rows.forEach(row => {
+    if (row.style.display === 'none') return;
+    const read = row.querySelector('.cb-read');
+    const add = row.querySelector('.cb-add');
+    const edit = row.querySelector('.cb-edit');
+    const del = row.querySelector('.cb-delete');
+    const master = row.querySelector('.cb-master');
+
+    if (type === 'read') {
+      if (read) read.checked = true;
+      if (add) add.checked = false;
+      if (edit) edit.checked = false;
+      if (del) del.checked = false;
+      if (master) master.checked = false;
+    } else if (type === 'read_add_edit') {
+      if (read) read.checked = true;
+      if (add) add.checked = true;
+      if (edit) edit.checked = true;
+      if (del) del.checked = false;
+      if (master) master.checked = false;
+    } else if (type === 'full') {
+      if (read) read.checked = true;
+      if (add) add.checked = true;
+      if (edit) edit.checked = true;
+      if (del) del.checked = true;
+      if (master) master.checked = true;
+    } else if (type === 'revoke') {
+      if (read) read.checked = false;
+      if (add) add.checked = false;
+      if (edit) edit.checked = false;
+      if (del) del.checked = false;
+      if (master) master.checked = false;
+    }
+  });
+}
+</script>
 {% endblock %}
 """
 
@@ -555,56 +796,77 @@ PERMISSIONS_PAGE = """
 @users_admin_bp.route('/permissions', methods=['GET', 'POST'])
 @admin_required
 def permissions():
-    # department can come from query string (GET, clicking a department in
-    # the sidebar) or from the hidden form field (POST, saving that department)
+    selected_role = (request.values.get('role') or 'Safety Officer').strip()
+    if selected_role not in ASSIGNABLE_ROLES:
+        selected_role = ASSIGNABLE_ROLES[0] if ASSIGNABLE_ROLES else 'Safety Officer'
+
     selected_department = (request.values.get('department') or '').strip() or None
+    dept_key = selected_department or ''
 
     conn = get_db()
     c = conn.cursor()
 
     if request.method == 'POST':
         try:
-            for r in ASSIGNABLE_ROLES:
-                can_create = 'create_' + r in request.form
-                can_edit = 'edit_' + r in request.form
-                can_delete = 'delete_' + r in request.form
+            for mod in SYSTEM_MODULES:
+                mod_id = mod['id']
+                can_view = f"read_{mod_id}" in request.form
+                can_create = f"add_{mod_id}" in request.form
+                can_edit = f"edit_{mod_id}" in request.form
+                can_delete = f"delete_{mod_id}" in request.form
 
-                if selected_department:
-                    c.execute(
-                        """INSERT INTO department_role_permissions (department, role, can_create, can_edit, can_delete)
-                           VALUES (%s,%s,%s,%s,%s)
-                           ON CONFLICT (department, role) DO UPDATE
-                           SET can_create=%s, can_edit=%s, can_delete=%s""",
-                        (selected_department, r, can_create, can_edit, can_delete,
-                         can_create, can_edit, can_delete)
-                    )
-                else:
-                    # legacy/global table, for users with no department
-                    c.execute(
-                        """INSERT INTO role_permissions (role, can_create, can_edit, can_delete)
-                           VALUES (%s,%s,%s,%s)
-                           ON CONFLICT (role) DO UPDATE
-                           SET can_create=%s, can_edit=%s, can_delete=%s""",
-                        (r, can_create, can_edit, can_delete, can_create, can_edit, can_delete)
-                    )
+                c.execute("""
+                    INSERT INTO module_permissions (department, role, module, can_view, can_create, can_edit, can_delete)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (department, role, module) DO UPDATE
+                    SET can_view=EXCLUDED.can_view,
+                        can_create=EXCLUDED.can_create,
+                        can_edit=EXCLUDED.can_edit,
+                        can_delete=EXCLUDED.can_delete
+                """, (dept_key, selected_role, mod_id, can_view, can_create, can_edit, can_delete))
+
+            # Synchronize legacy permission table
+            c.execute("""
+                SELECT bool_or(can_create) as c, bool_or(can_edit) as e, bool_or(can_delete) as d
+                FROM module_permissions WHERE department = %s AND role = %s
+            """, (dept_key, selected_role))
+            leg = fetchone(c)
+            can_c = bool(leg and leg['c']) if leg else False
+            can_e = bool(leg and leg['e']) if leg else False
+            can_d = bool(leg and leg['d']) if leg else False
+
+            if selected_department:
+                c.execute("""
+                    INSERT INTO department_role_permissions (department, role, can_create, can_edit, can_delete)
+                    VALUES (%s,%s,%s,%s,%s)
+                    ON CONFLICT (department, role) DO UPDATE
+                    SET can_create=%s, can_edit=%s, can_delete=%s
+                """, (selected_department, selected_role, can_c, can_e, can_d, can_c, can_e, can_d))
+            else:
+                c.execute("""
+                    INSERT INTO role_permissions (role, can_create, can_edit, can_delete)
+                    VALUES (%s,%s,%s,%s)
+                    ON CONFLICT (role) DO UPDATE
+                    SET can_create=%s, can_edit=%s, can_delete=%s
+                """, (selected_role, can_c, can_e, can_d, can_c, can_e, can_d))
+
             conn.commit()
-            flash(f"Permissions updated{' for ' + selected_department if selected_department else ''}.", 'success')
+            flash(f"Permissions for role '{selected_role}' updated successfully.", 'success')
+            log_action('edit', 'permissions', None, f"Updated module permissions for role '{selected_role}' (Dept: '{selected_department or 'Global'}')")
         except Exception as e:
             conn.rollback()
             flash(f"Error updating permissions: {e}", 'danger')
 
-    if selected_department:
-        perms = get_department_role_permissions(selected_department)
-    else:
-        c.execute("SELECT role, can_create, can_edit, can_delete FROM role_permissions")
-        perms = {row['role']: row for row in fetchall(c)}
-
+    module_perms = get_module_permissions(selected_department)
     conn.close()
+
     return render_template_string(
         PERMISSIONS_PAGE,
         roles=ROLES,
         assignable_roles=ASSIGNABLE_ROLES,
+        system_modules=SYSTEM_MODULES,
         departments=get_user_departments(),
+        selected_role=selected_role,
         selected_department=selected_department,
-        perms=perms
+        module_perms=module_perms
     )
