@@ -17,12 +17,9 @@
       <i class="fas fa-envelope me-1"></i> Mail
     </a>
     {% endif %}
-    <form action="{{ url_for('employee_sync.sync_employees') }}" method="POST" class="d-inline"
-      onsubmit="return confirm('Sync employees from SQL Server HR database now?');">
-      <button type="submit" class="btn btn-outline-primary me-2">
-        <i class="fas fa-sync me-1"></i> Sync From Mantra
-      </button>
-    </form>
+    <button type="button" class="btn btn-outline-primary me-2" data-bs-toggle="modal" data-bs-target="#syncModal">
+      <i class="fas fa-sync me-1"></i> Sync From MANTRA
+    </button>
     <button class="btn btn-jsw" data-bs-toggle="modal" data-bs-target="#addUserModal">
       <i class="fas fa-plus me-1"></i> Add User
     </button>
@@ -254,6 +251,64 @@
           <button type="submit" class="btn btn-jsw">Create User</button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+
+<!-- Combined Employee Sync Modal -->
+<div class="modal fade" id="syncModal" tabindex="-1" aria-labelledby="syncModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content shadow-lg">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold" id="syncModalLabel"><i class="fas fa-sync-alt me-2 text-primary"></i>Employee Sync Options</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-4">
+        
+        <!-- Option 1: Manual Sync -->
+        <div class="card mb-4 border-primary">
+          <div class="card-body p-3 text-center">
+            <h6 class="card-title fw-bold text-primary mb-2"><i class="fas fa-bolt me-1"></i> Manual Sync</h6>
+            <p class="card-text text-muted small mb-3">Immediately sync employees from SQL Server HR database right now.</p>
+            <form action="{{ url_for('employee_sync.sync_employees') }}" method="POST" onsubmit="return confirm('Sync employees from SQL Server HR database now?');">
+              <button type="submit" class="btn btn-primary w-100 fw-bold">
+                <i class="fas fa-sync me-1"></i> Manual Sync (Sync Now)
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Option 2: Auto Sync Settings -->
+        <div class="card border-secondary">
+          <div class="card-body p-3">
+            <h6 class="card-title fw-bold text-secondary mb-2"><i class="fas fa-clock me-1"></i> Auto Sync Settings</h6>
+            <p class="card-text text-muted small mb-3">Configure automated daily sync schedule. If errors occur, it retries up to 3 times (15-min interval).</p>
+            
+            <form action="{{ url_for('employee_sync.update_auto_sync_config') }}" method="POST">
+              <div class="form-check form-switch mb-3 p-3 bg-light rounded border d-flex align-items-center justify-content-between">
+                <label class="form-check-label fw-bold me-3" for="autoSyncToggle">Enable Daily Auto-Sync</label>
+                <input class="form-check-input ms-0" type="checkbox" role="switch" id="autoSyncToggle" name="is_enabled" style="width: 3em; height: 1.5em;" {% if auto_sync_config and auto_sync_config.is_enabled %}checked{% endif %}>
+              </div>
+
+              <div class="mb-3">
+                <label for="syncTimeInput" class="form-label fw-bold">Auto Sync Time (Daily)</label>
+                <input type="time" class="form-control form-control-lg" id="syncTimeInput" name="sync_time" value="{{ auto_sync_config.sync_time if auto_sync_config else '00:00' }}" required>
+                <div class="form-text">Set the daily execution time (24-hour format) for background auto sync to run.</div>
+              </div>
+
+              <button type="submit" class="btn btn-outline-success w-100 fw-bold">
+                <i class="fas fa-save me-1"></i> Save Auto Sync Settings
+              </button>
+            </form>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer bg-light">
+        <button type="button" class="btn btn-secondary px-4 fw-bold" data-bs-dismiss="modal">
+          <i class="fas fa-times me-1"></i> Close
+        </button>
+      </div>
     </div>
   </div>
 </div>

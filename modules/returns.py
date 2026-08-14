@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 from database.db import get_db, fetchall, fetchone
 from datetime import date
 from modules.user_admin import has_permission, get_user_dept_variants
+from modules.logs import log_action
 
 returns_bp = Blueprint('returns', __name__)
 
@@ -53,49 +54,30 @@ def index():
     """
     params = []
 
-    # Non-admin user can only access their assigned departments
     if not is_admin:
         if dept_variants:
-            query += """ AND (
-                LOWER(TRIM(rr.department)) = ANY(%s)
-                OR LOWER(TRIM(e.department)) = ANY(%s)
-                OR LOWER(TRIM(ir.department)) = ANY(%s)
-                OR LOWER(TRIM(i.added_by_department)) = ANY(%s)
-            )"""
-            params.extend([dept_variants, dept_variants, dept_variants, dept_variants])
+            placeholders = ', '.join(['%s'] * len(dept_variants))
+            query += f" AND LOWER(TRIM(COALESCE(NULLIF(TRIM(rr.department), ''), NULLIF(TRIM(e.department), ''), NULLIF(TRIM(ir.department), ''), NULLIF(TRIM(i.added_by_department), '')))) IN ({placeholders})"
+            params.extend(dept_variants)
         else:
             query += " AND 1=0"
 
-    # Specific department filter if selected
     if selected_dept:
-        selected_lower = [selected_dept.lower()]
-        query += """ AND (
-            LOWER(TRIM(rr.department)) = ANY(%s)
-            OR LOWER(TRIM(e.department)) = ANY(%s)
-            OR LOWER(TRIM(ir.department)) = ANY(%s)
-            OR LOWER(TRIM(i.added_by_department)) = ANY(%s)
-        )"""
-        params.extend([selected_lower, selected_lower, selected_lower, selected_lower])
+        query += " AND LOWER(TRIM(COALESCE(NULLIF(TRIM(rr.department), ''), NULLIF(TRIM(e.department), ''), NULLIF(TRIM(ir.department), ''), NULLIF(TRIM(i.added_by_department), '')))) = LOWER(TRIM(%s))"
+        params.append(selected_dept)
 
-    # Date range filters
     if from_date:
         query += " AND rr.return_date >= %s"
         params.append(from_date)
+
     if to_date:
         query += " AND rr.return_date <= %s"
         params.append(to_date)
 
-    # Search filter (employee name/code, received_by, item_name, remarks)
     if search_query:
-        query += """ AND (
-            LOWER(i.item_name) LIKE %s
-            OR LOWER(COALESCE(e.name, '')) LIKE %s
-            OR LOWER(COALESCE(e.emp_code, '')) LIKE %s
-            OR LOWER(COALESCE(rr.received_by, '')) LIKE %s
-            OR LOWER(COALESCE(rr.remarks, '')) LIKE %s
-        )"""
-        pattern = f"%{search_query.lower()}%"
-        params.extend([pattern, pattern, pattern, pattern, pattern])
+        query += " AND (i.item_name ILIKE %s OR e.name ILIKE %s OR e.emp_code ILIKE %s OR rr.remarks ILIKE %s)"
+        s = f"%{search_query}%"
+        params.extend([s, s, s, s])
 
     query += " ORDER BY rr.return_date DESC, rr.id DESC LIMIT 100"
 
@@ -150,6 +132,7 @@ def add_disposal():
             INSERT INTO return_register
                 (return_date, employee_id, item_id, qty, qty_no, qty_kg, condition, received_by, remarks, department)
             VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
         """, (
             request.form['return_date'],
             item_id,
@@ -161,11 +144,14 @@ def add_disposal():
             request.form.get('remarks', ''),
             target_dept
         ))
+        res = fetchone(c)
+        ret_id = res['id'] if res else None
 
         if qty_no:
             c.execute("UPDATE items SET stock = stock - %s WHERE id=%s", (qty_no, item_id))
 
         conn.commit()
+        log_action('create', 'returns', ret_id, f"Added return/disposal for item ID #{item_id}", department=target_dept)
         flash('Disposal record saved successfully.', 'success')
     except Exception as e:
         conn.rollback()
@@ -259,6 +245,7 @@ def edit(id):
             c.execute("UPDATE items SET stock = stock - %s WHERE id=%s", (diff, old['item_id']))
 
         conn.commit()
+        log_action('edit', 'returns', id, f"Updated disposal record #{id}", department=target_dept)
         flash('Disposal record updated successfully.', 'success')
     except Exception as e:
         conn.rollback(); flash(f'Error: {e}', 'danger')
@@ -307,6 +294,7 @@ def delete(id):
             c.execute("UPDATE items SET stock = stock + %s WHERE id=%s", (row['qty_no'], row['item_id']))
 
         conn.commit()
+        log_action('delete', 'returns', id, f"Deleted disposal record #{id}", department=row.get('dept'))
         flash('Disposal record deleted and stock restored.', 'success')
     except Exception as e:
         conn.rollback(); flash(f'Error: {e}', 'danger')

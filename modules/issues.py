@@ -6,12 +6,14 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from modules.user_admin import has_permission   # ← ADDED
+from modules.logs import log_action
 
 issues_bp = Blueprint('issues', __name__)
 _thin = Side(style='thin', color='C7CDD4')
 _border = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
 _ctr = Alignment(horizontal='center', vertical='center', wrap_text=True)
 _left = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
 
 
 @issues_bp.route('/issues')
@@ -323,6 +325,8 @@ def add():
 
                 conn.commit()
                 issued_count += 1
+                emp_code_str = emp_row['emp_code'] if emp_row and 'emp_code' in emp_row else str(emp_id)
+                log_action('create', 'issues', None, f"Issued {qty} x '{item_name}' to employee '{emp_code_str}'", department=issue_department)
 
     except Exception as e:
         conn.rollback()

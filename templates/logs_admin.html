@@ -4,16 +4,9 @@
 
 {% block content %}
 
-<div class="card mb-4">
-  <div class="card-header bg-light fw-bold">Activity — last 8 days</div>
-  <div class="card-body" style="height:220px;">
-    <canvas id="activityChart"></canvas>
-  </div>
-</div>
-
 <!-- Activity / Audit log -->
 <div class="d-flex justify-content-between align-items-center mb-2">
-  <h5 class="mb-0">Activity Log <small class="text-muted">(who created / edited / deleted what)</small></h5>
+  <h5 class="mb-0">Activity Log <small class="text-muted">(User & Department Wise Activity)</small></h5>
 </div>
 
 <div class="card mb-4">
@@ -21,15 +14,25 @@
     <form method="GET" class="row g-2 mb-3">
       <div class="col-auto">
         <div class="btn-group" role="group">
-          <a href="{{ url_for('logs.index', action='all', module=module_filter, q=search) }}"
+          <a href="{{ url_for('logs.index', action='all', module=module_filter, dept=dept_filter, q=search) }}"
              class="btn btn-sm {% if action_filter=='all' %}btn-jsw{% else %}btn-outline-secondary{% endif %}">All</a>
-          <a href="{{ url_for('logs.index', action='create', module=module_filter, q=search) }}"
+          <a href="{{ url_for('logs.index', action='create', module=module_filter, dept=dept_filter, q=search) }}"
              class="btn btn-sm {% if action_filter=='create' %}btn-jsw{% else %}btn-outline-secondary{% endif %}">Create</a>
-          <a href="{{ url_for('logs.index', action='edit', module=module_filter, q=search) }}"
+          <a href="{{ url_for('logs.index', action='edit', module=module_filter, dept=dept_filter, q=search) }}"
              class="btn btn-sm {% if action_filter=='edit' %}btn-jsw{% else %}btn-outline-secondary{% endif %}">Edit</a>
-          <a href="{{ url_for('logs.index', action='delete', module=module_filter, q=search) }}"
+          <a href="{{ url_for('logs.index', action='delete', module=module_filter, dept=dept_filter, q=search) }}"
              class="btn btn-sm {% if action_filter=='delete' %}btn-jsw{% else %}btn-outline-secondary{% endif %}">Delete</a>
+          <a href="{{ url_for('logs.index', action='login', module=module_filter, dept=dept_filter, q=search) }}"
+             class="btn btn-sm {% if action_filter=='login' %}btn-jsw{% else %}btn-outline-secondary{% endif %}">Login</a>
         </div>
+      </div>
+      <div class="col-auto">
+        <select name="dept" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">All Departments</option>
+          {% for d in departments_list %}
+          <option value="{{ d }}" {% if dept_filter == d %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="col-auto">
         <select name="module" class="form-select form-select-sm" onchange="this.form.submit()">
@@ -42,19 +45,20 @@
       <input type="hidden" name="action" value="{{ action_filter }}">
       <div class="col-auto flex-grow-1" style="min-width:220px;">
         <input type="text" name="q" value="{{ search }}" class="form-control form-control-sm"
-               placeholder="Search user or description...">
+               placeholder="Search user, department, or description...">
       </div>
       <div class="col-auto">
         <button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-search"></i></button>
       </div>
     </form>
 
-    <div class="table-responsive" style="max-height:420px;">
+    <div class="table-responsive" style="max-height:500px;">
       <table class="table table-hover table-sm mb-0">
-        <thead style="position:sticky; top:0;">
+        <thead style="position:sticky; top:0; background-color: #f8f9fa; z-index: 5;">
           <tr>
             <th>Time</th>
             <th>User</th>
+            <th>Department</th>
             <th>Action</th>
             <th>Module</th>
             <th>Record</th>
@@ -65,19 +69,22 @@
           {% for r in audit_rows %}
           <tr>
             <td class="text-nowrap">{{ r.created_at }}</td>
-            <td>{{ r.full_name or r.username or '—' }}</td>
+            <td><strong>{{ r.full_name or r.username or '—' }}</strong></td>
+            <td><span class="badge bg-light text-dark border">{{ r.department or 'All / Admin' }}</span></td>
             <td>
               {% if r.action == 'create' %}<span class="badge bg-success">Create</span>
               {% elif r.action == 'edit' %}<span class="badge bg-warning text-dark">Edit</span>
               {% elif r.action == 'delete' %}<span class="badge bg-danger">Delete</span>
+              {% elif r.action == 'login' %}<span class="badge bg-info text-dark">Login</span>
+              {% elif r.action == 'logout' %}<span class="badge bg-secondary">Logout</span>
               {% else %}<span class="badge bg-secondary">{{ r.action }}</span>{% endif %}
             </td>
-            <td>{{ r.module }}</td>
+            <td><span class="badge bg-outline-secondary">{{ r.module }}</span></td>
             <td>{{ r.record_id or '—' }}</td>
             <td>{{ r.description }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="6" class="text-center text-muted py-3">No activity logs found.</td></tr>
+          <tr><td colspan="7" class="text-center text-muted py-4">No activity logs found.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -90,11 +97,12 @@
   <h5 class="mb-0">Error Log</h5>
 </div>
 
-<div class="card">
+<div class="card mb-4">
   <div class="card-body">
     <form method="GET" class="row g-2 mb-3">
       <input type="hidden" name="action" value="{{ action_filter }}">
       <input type="hidden" name="module" value="{{ module_filter }}">
+      <input type="hidden" name="dept" value="{{ dept_filter }}">
       <input type="hidden" name="q" value="{{ search }}">
       <div class="col-auto flex-grow-1" style="min-width:260px;">
         <input type="text" name="eq" value="{{ err_search }}" class="form-control form-control-sm"
@@ -131,27 +139,5 @@
     </div>
   </div>
 </div>
-
-<script>
-  const activityData = {{ activity_by_day | tojson }};
-  new Chart(document.getElementById('activityChart'), {
-    type: 'bar',
-    data: {
-      labels: activityData.map(r => r.day),
-      datasets: [{
-        data: activityData.map(r => r.cnt),
-        backgroundColor: 'rgba(47,128,237,.75)',
-        borderRadius: 6
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-    }
-  });
-</script>
 
 {% endblock %}

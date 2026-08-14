@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify, Response
 from database.db import get_db, fetchall, fetchone
-from modules.user_admin import has_permission   # ← ADD — reuse the same role_permissions table
+from modules.user_admin import has_permission
+from modules.logs import log_action
 import io
 
 employees_bp = Blueprint('employees', __name__)
@@ -168,20 +169,22 @@ def index():
 def add():
     if 'user' not in session:
         return redirect(url_for('auth.login'))
-    if not has_permission('can_create'):                       # ← ADD
+    if not has_permission('can_create'):
         flash('You do not have permission to add employees.', 'danger')
         return redirect(url_for('employees.index'))
     conn = get_db()
     c = conn.cursor()
     try:
         emp_code = request.form['emp_code']
+        name = request.form['name']
+        department = request.form['department']
         c.execute("INSERT INTO employees (emp_code,name,department,contractor,designation,status,entry_date) VALUES (%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)",
-                  (emp_code, request.form['name'], request.form['department'],
-                   request.form.get('contractor',''), request.form.get('designation',''), 'Active'))
-        # ← ADD — manually re-adding someone clears any old tombstone for
+                  (emp_code, name, department, request.form.get('contractor',''), request.form.get('designation',''), 'Active'))
+        # manually re-adding someone clears any old tombstone for
         # this emp_code, so future syncs are allowed to touch them again.
         c.execute("DELETE FROM deleted_employees WHERE emp_code=%s", (emp_code,))
         conn.commit()
+        log_action('create', 'employees', emp_code, f"Added employee '{name}' ({emp_code}) in department '{department}'", department=department)
         flash('Employee added successfully.', 'success')
     except Exception as e:
         conn.rollback()
@@ -214,9 +217,6 @@ def edit(id):
         old = fetchone(c)
 
         department = (request.form.get("department") or "").strip()
-        print("Department:", request.form.get("department"))
-        print("Contractor:", request.form.get("contractor"))
-        print(request.form)
         if not department:
             department = old["department"]
         c.execute("SELECT status FROM employees WHERE id=%s", (id,))
@@ -253,6 +253,7 @@ def edit(id):
         ))
 
         conn.commit()
+        log_action('edit', 'employees', id, f"Updated employee '{request.form.get('name')}' (Dept: {department})", department=department)
         flash("Employee updated successfully.", "success")
 
         # If the department actually changed, jump straight into a filtered
@@ -276,16 +277,16 @@ def edit(id):
 
 @employees_bp.route('/employees/delete/<int:id>')
 def delete(id):
-    if 'user' not in session or not has_permission('can_delete'):   # ← CHANGED — was Admin/Super Admin only
+    if 'user' not in session or not has_permission('can_delete'):
         flash('Access denied.', 'danger')
         return redirect(url_for('employees.index'))
     conn = get_db()
     c = conn.cursor()
     try:
-        # ← ADD — record a tombstone BEFORE deleting, so the next SQL Server
+        # record a tombstone BEFORE deleting, so the next SQL Server
         # sync knows this emp_code was intentionally removed and must not
         # be re-inserted just because it's still Active in the source view.
-        c.execute("SELECT emp_code, name FROM employees WHERE id=%s", (id,))
+        c.execute("SELECT emp_code, name, department FROM employees WHERE id=%s", (id,))
         emp = fetchone(c)
         if emp:
             c.execute("""
@@ -297,6 +298,7 @@ def delete(id):
 
         c.execute("DELETE FROM employees WHERE id=%s", (id,))
         conn.commit()
+        log_action('delete', 'employees', id, f"Deleted employee '{emp['name']}' ({emp['emp_code']})", department=emp.get('department'))
         flash('Employee deleted.', 'info')
     except Exception as e:
         conn.rollback()

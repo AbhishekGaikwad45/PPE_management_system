@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify, Response
 from database.db import get_db, fetchall, fetchone
 from modules.user_admin import has_permission   # ← ADD — same dynamic role_permissions table used elsewhere
+from modules.logs import log_action
 import io
 
 items_bp = Blueprint('items', __name__)
@@ -41,8 +42,6 @@ def add():
     role = session.get('role')
     dept = session.get('department')
     is_admin = role in ['Admin', 'Super Admin']
-    # Admin-added items have NULL added_by_department (visible to all);
-    # department-added items are scoped to that department.
     added_by_dept = None if is_admin else dept
 
     conn = get_db(); c = conn.cursor()
@@ -70,6 +69,7 @@ def add():
             )
         )
         conn.commit()
+        log_action('create', 'items', item_code, f"Added item '{item_name}' ({item_code})")
         flash('Item added successfully.', 'success')
     except Exception as e:
         conn.rollback(); flash(f'Error: {e}', 'danger')
@@ -80,18 +80,21 @@ def add():
 def edit(id):
     if 'user' not in session:
         return redirect(url_for('auth.login'))
-    if not has_permission('can_edit'):                         # ← ADD
+    if not has_permission('can_edit'):
         flash('You do not have permission to edit items.', 'danger')
         return redirect(url_for('items.index'))
     conn = get_db(); c = conn.cursor()
     try:
+        item_code = request.form['item_code'].strip().upper()
+        item_name = request.form['item_name'].strip().upper()
         c.execute("UPDATE items SET item_code=%s,item_name=%s,category=%s,unit=%s,min_stock=%s,reorder_level=%s,has_expiry=%s,has_calibration=%s WHERE id=%s",
-                  (request.form['item_code'].strip().upper(), request.form['item_name'].strip().upper(), request.form['category'],
+                  (item_code, item_name, request.form['category'],
                    request.form.get('unit','Nos'), int(request.form.get('min_stock',0)),
                    int(request.form.get('reorder_level',0)),
                    1 if request.form.get('has_expiry') else 0,
                    1 if request.form.get('has_calibration') else 0, id))
         conn.commit()
+        log_action('edit', 'items', id, f"Updated item '{item_name}' ({item_code})")
         flash('Item updated.', 'success')
     except Exception as e:
         conn.rollback(); flash(f'Error: {e}', 'danger')
@@ -102,13 +105,17 @@ def edit(id):
 def delete(id):
     if 'user' not in session:
         return redirect(url_for('auth.login'))
-    if not has_permission('can_delete'):                        # ← ADD
+    if not has_permission('can_delete'):
         flash('You do not have permission to delete items.', 'danger')
         return redirect(url_for('items.index'))
     conn = get_db(); c = conn.cursor()
     try:
+        c.execute("SELECT item_code, item_name FROM items WHERE id=%s", (id,))
+        item = fetchone(c)
         c.execute("DELETE FROM items WHERE id=%s", (id,))
         conn.commit()
+        item_str = f"'{item['item_name']}' ({item['item_code']})" if item else f"ID {id}"
+        log_action('delete', 'items', id, f"Deleted item {item_str}")
         flash('Item deleted.', 'success')
     except Exception as e:
         conn.rollback(); flash(f'Error: {e}', 'danger')

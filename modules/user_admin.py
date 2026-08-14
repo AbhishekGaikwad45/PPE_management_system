@@ -201,6 +201,9 @@ def index():
     # department -> role -> perms, used to show the correct badges per user
     dept_perms = get_department_role_permissions()
 
+    from modules.employee_sync import get_auto_sync_config
+    auto_sync_config = get_auto_sync_config()
+
     return render_template(
         "users_admin.html",
         users=users,
@@ -208,6 +211,7 @@ def index():
         departments=get_departments(),
         perms=global_perms,
         dept_perms=dept_perms,
+        auto_sync_config=auto_sync_config,
         can_create=has_permission("can_create"),
         can_edit=has_permission("can_edit"),
         can_delete=has_permission("can_delete")
