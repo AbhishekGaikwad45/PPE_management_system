@@ -372,8 +372,10 @@ def sync_employees():
     res = perform_employee_sync()
 
     if not res['success']:
+        log_action('sync_failed', 'employee_sync', None, f"Manual sync failed: {res.get('error_message', 'Unknown error')}")
         flash(f"Sync failed: {res.get('error_message', 'Unknown error')}", 'danger')
     else:
+        log_action('manual_sync', 'employee_sync', None, res['summary'])
         flash(res['summary'], 'success')
         if res['skipped']:
             flash(f"{res['skipped']} rows skipped (missing Employee ID/Name, or new-but-Inactive).", 'warning')
@@ -426,22 +428,38 @@ def init_auto_sync_db():
 
 
 def get_auto_sync_config():
-    """Fetches auto sync config (is_enabled, sync_time) from DB."""
+    """Fetches auto sync config (is_enabled, sync_time, last_sync_at, last_sync_summary) from existing DB tables without adding columns."""
     init_auto_sync_db()
+    last_sync_at = None
+    last_sync_summary = None
     try:
         pg = get_db()
         c = pg.cursor()
         c.execute("SELECT is_enabled, sync_time FROM auto_sync_config WHERE id=1")
         row = fetchone(c)
+
+        # Query existing audit_logs table for the last employee sync entry
+        c.execute("""
+            SELECT created_at, description FROM audit_logs
+            WHERE module='employee_sync' OR action IN ('manual_sync', 'auto_sync', 'sync', 'sync_failed')
+            ORDER BY created_at DESC LIMIT 1
+        """)
+        audit_last = fetchone(c)
+        if audit_last:
+            last_sync_at = audit_last.get('created_at')
+            last_sync_summary = audit_last.get('description')
+
         pg.close()
         if row:
             return {
                 'is_enabled': bool(row.get('is_enabled', True)),
-                'sync_time': str(row.get('sync_time', '00:00')).strip() or '00:00'
+                'sync_time': str(row.get('sync_time', '00:00')).strip() or '00:00',
+                'last_sync_at': last_sync_at,
+                'last_sync_summary': last_sync_summary
             }
     except Exception as e:
         print(f"[AutoSync Get Config Error] {e}")
-    return {'is_enabled': True, 'sync_time': '00:00'}
+    return {'is_enabled': True, 'sync_time': '00:00', 'last_sync_at': last_sync_at, 'last_sync_summary': last_sync_summary}
 
 
 def save_auto_sync_config(is_enabled, sync_time):
@@ -590,4 +608,4 @@ def update_auto_sync_config():
     else:
         flash("Failed to save Auto-sync configuration.", "danger")
 
-    return redirect(url_for('users_admin.index'))
+    return redirect(url_for('users_admin.index'))

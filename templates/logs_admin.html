@@ -68,7 +68,7 @@
         <tbody>
           {% for r in audit_rows %}
           <tr>
-            <td class="text-nowrap">{{ r.created_at }}</td>
+            <td class="text-nowrap">{% if r.created_at %}{{ r.created_at.strftime('%d-%m-%Y %H:%M') if r.created_at.strftime else (r.created_at|string)[8:10] + '-' + (r.created_at|string)[5:7] + '-' + (r.created_at|string)[:4] + ' ' + (r.created_at|string)[11:16] }}{% else %}—{% endif %}</td>
             <td><strong>{{ r.full_name or r.username or '—' }}</strong></td>
             <td><span class="badge bg-light text-dark border">{{ r.department or 'All / Admin' }}</span></td>
             <td>
@@ -79,7 +79,7 @@
               {% elif r.action == 'logout' %}<span class="badge bg-secondary">Logout</span>
               {% else %}<span class="badge bg-secondary">{{ r.action }}</span>{% endif %}
             </td>
-            <td><span class="badge bg-outline-secondary">{{ r.module }}</span></td>
+            <td>{% if r.module %}<span class="badge bg-secondary">{{ r.module }}</span>{% else %}—{% endif %}</td>
             <td>{{ r.record_id or '—' }}</td>
             <td>{{ r.description }}</td>
           </tr>
@@ -124,7 +124,7 @@
             <div class="small text-muted">{{ e.message }}</div>
           </div>
           <div class="text-end text-nowrap small text-muted">
-            {{ e.created_at }}<br>{{ e.source }}
+            {% if e.created_at %}{{ e.created_at.strftime('%d-%m-%Y %H:%M') if e.created_at.strftime else (e.created_at|string)[8:10] + '-' + (e.created_at|string)[5:7] + '-' + (e.created_at|string)[:4] + ' ' + (e.created_at|string)[11:16] }}{% endif %}<br>{{ e.source }}
           </div>
         </div>
         {% if e.traceback %}
