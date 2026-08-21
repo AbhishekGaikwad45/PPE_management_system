@@ -66,9 +66,9 @@
   .link-muted:hover { color: #2563eb; }
 
   /* Carousel images — in CSS to avoid Jinja quote conflicts in HTML attrs */
-  #slide0 { background-image: url("{{ url_for('static', filename='img/port3.jpg') }}"); }
-  #slide1 { background-image: url("{{ url_for('static', filename='img/port1.jpg') }}"); }
-  #slide2 { background-image: url("{{ url_for('static', filename='img/port2.jpg') }}"); }
+  #slide0 { background-image: url("{{ url_for('static', filename='img/port3.png') }}"); }
+  #slide1 { background-image: url("{{ url_for('static', filename='img/port1.png') }}"); }
+  #slide2 { background-image: url("{{ url_for('static', filename='img/port2.png') }}"); }
 </style>
 </head>
 <body>
@@ -83,7 +83,7 @@
 <div class="page-wrap">
   <div class="auth-card">
     <div class="auth-card-header">
-      <div class="logo-wrap"><i class="fas fa-shield-check" style="font-size:22px;"></i></div>
+      <div><img src="{{ url_for('static', filename='img/JSW.png') }}" alt="JSW" class="brand-logo"></div>
       <h4>Verify OTP</h4>
       <p>JSW Dharamtar Port Operations Safety Management</p>
     </div>
@@ -134,7 +134,7 @@
   </div>
 
   <div class="brand-panel">
-    <!-- <img src="{{ url_for('static', filename='img/JSW.png') }}" alt="JSW" class="brand-logo"> -->
+    
     <h1>Verify Your<br>Identity</h1>
     <p>A 6-digit OTP has been sent to your registered email address. Enter it below to proceed with your password reset.</p>
     <div class="brand-feature">
