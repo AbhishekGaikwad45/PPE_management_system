@@ -111,23 +111,61 @@ def get_report_data(c, report_type, from_date, to_date, filter_id=None, dept_var
                    FROM items ORDER BY category, item_name""")
 
     elif report_type == 'inactive_employee':
-        if dept_variants:
-            c.execute("""SELECT emp_code, name, department, contractor, designation, category,
-                                TO_CHAR(entry_date, 'YYYY-MM-DD') as entry_date,
-                                TO_CHAR(COALESCE(inactive_date, created_at, entry_date), 'YYYY-MM-DD') as inactive_date
-                       FROM employees
-                       WHERE status = 'Inactive'
-                       AND COALESCE(inactive_date, created_at, entry_date)::date BETWEEN %s::date AND %s::date
-                       AND LOWER(department) = ANY(%s)
-                       ORDER BY name""", (from_date, to_date, dept_variants))
-        else:
-            c.execute("""SELECT emp_code, name, department, contractor, designation, category,
-                                TO_CHAR(entry_date, 'YYYY-MM-DD') as entry_date,
-                                TO_CHAR(COALESCE(inactive_date, created_at, entry_date), 'YYYY-MM-DD') as inactive_date
-                       FROM employees
-                       WHERE status = 'Inactive'
-                       AND COALESCE(inactive_date, created_at, entry_date)::date BETWEEN %s::date AND %s::date
-                       ORDER BY name""", (from_date, to_date))
+        try:
+            if dept_variants:
+                c.execute("""SELECT emp_code, name, department, contractor, designation, category,
+                                    TO_CHAR(entry_date, 'YYYY-MM-DD') as entry_date,
+                                    TO_CHAR(COALESCE(inactive_date, created_at, entry_date), 'YYYY-MM-DD') as inactive_date
+                           FROM employees
+                           WHERE status = 'Inactive'
+                           AND COALESCE(inactive_date, created_at, entry_date)::date BETWEEN %s::date AND %s::date
+                           AND LOWER(department) = ANY(%s)
+                           ORDER BY name""", (from_date, to_date, dept_variants))
+            else:
+                c.execute("""SELECT emp_code, name, department, contractor, designation, category,
+                                    TO_CHAR(entry_date, 'YYYY-MM-DD') as entry_date,
+                                    TO_CHAR(COALESCE(inactive_date, created_at, entry_date), 'YYYY-MM-DD') as inactive_date
+                           FROM employees
+                           WHERE status = 'Inactive'
+                           AND COALESCE(inactive_date, created_at, entry_date)::date BETWEEN %s::date AND %s::date
+                           ORDER BY name""", (from_date, to_date))
+        except Exception:
+            c.execute("ROLLBACK")
+            try:
+                # Fallback if created_at column is missing
+                if dept_variants:
+                    c.execute("""SELECT emp_code, name, department, contractor, designation, category,
+                                        TO_CHAR(entry_date, 'YYYY-MM-DD') as entry_date,
+                                        TO_CHAR(COALESCE(inactive_date, entry_date), 'YYYY-MM-DD') as inactive_date
+                               FROM employees
+                               WHERE status = 'Inactive'
+                               AND COALESCE(inactive_date, entry_date)::date BETWEEN %s::date AND %s::date
+                               AND LOWER(department) = ANY(%s)
+                               ORDER BY name""", (from_date, to_date, dept_variants))
+                else:
+                    c.execute("""SELECT emp_code, name, department, contractor, designation, category,
+                                        TO_CHAR(entry_date, 'YYYY-MM-DD') as entry_date,
+                                        TO_CHAR(COALESCE(inactive_date, entry_date), 'YYYY-MM-DD') as inactive_date
+                               FROM employees
+                               WHERE status = 'Inactive'
+                               AND COALESCE(inactive_date, entry_date)::date BETWEEN %s::date AND %s::date
+                               ORDER BY name""", (from_date, to_date))
+            except Exception:
+                c.execute("ROLLBACK")
+                # Basic fallback without optional date expressions
+                if dept_variants:
+                    c.execute("""SELECT emp_code, name, department, contractor, designation, category,
+                                        '' as entry_date, '' as inactive_date
+                               FROM employees
+                               WHERE status = 'Inactive'
+                               AND LOWER(department) = ANY(%s)
+                               ORDER BY name""", (dept_variants,))
+                else:
+                    c.execute("""SELECT emp_code, name, department, contractor, designation, category,
+                                        '' as entry_date, '' as inactive_date
+                               FROM employees
+                               WHERE status = 'Inactive'
+                               ORDER BY name""")
 
     return fetchall(c)
 
@@ -169,7 +207,12 @@ def view():
     elif filter_id is not None:
         filter_id = int(filter_id)
     conn = get_db(); c = conn.cursor()
-    data = get_report_data(c, report_type, from_date, to_date, filter_id, dept_variants)
+    try:
+        data = get_report_data(c, report_type, from_date, to_date, filter_id, dept_variants)
+    except Exception as e:
+        conn.rollback()
+        flash(f"Error loading report data: {e}", "danger")
+        data = []
     if dept_variants:
         c.execute("SELECT id, emp_code, name FROM employees WHERE LOWER(department)=ANY(%s) ORDER BY name", (dept_variants,))
     else:
@@ -201,7 +244,13 @@ def export_excel():
     elif filter_id is not None:
         filter_id = int(filter_id)
     conn = get_db(); c = conn.cursor()
-    data = get_report_data(c, report_type, from_date, to_date, filter_id, dept_variants)
+    try:
+        data = get_report_data(c, report_type, from_date, to_date, filter_id, dept_variants)
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        flash(f"Error generating Excel report: {e}", "danger")
+        return redirect(url_for('reports.index'))
     conn.close()
     wb = openpyxl.Workbook(); ws = wb.active; ws.title = report_type.upper()
     header_font = Font(bold=True, color='FFFFFF', size=11)
@@ -262,7 +311,13 @@ def export_pdf():
     elif filter_id is not None:
         filter_id = int(filter_id)
     conn = get_db(); c = conn.cursor()
-    data = get_report_data(c, report_type, from_date, to_date, filter_id, dept_variants)
+    try:
+        data = get_report_data(c, report_type, from_date, to_date, filter_id, dept_variants)
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        flash(f"Error generating PDF report: {e}", "danger")
+        return redirect(url_for('reports.index'))
     conn.close()
     headers = list(data[0].keys()) if data else []
     html = f"""<!DOCTYPE html><html><head><style>
