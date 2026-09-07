@@ -373,9 +373,11 @@ def sync_employees():
 
     if not res['success']:
         log_action('sync_failed', 'employee_sync', None, f"Manual sync failed: {res.get('error_message', 'Unknown error')}")
+        update_auto_sync_last_run(f"Manual sync failed: {res.get('error_message', 'Unknown error')}", is_success=False)
         flash(f"Sync failed: {res.get('error_message', 'Unknown error')}", 'danger')
     else:
         log_action('manual_sync', 'employee_sync', None, res['summary'])
+        update_auto_sync_last_run(res['summary'], is_success=True)
         flash(res['summary'], 'success')
         if res['skipped']:
             flash(f"{res['skipped']} rows skipped (missing Employee ID/Name, or new-but-Inactive).", 'warning')
@@ -406,7 +408,7 @@ MAX_SYNC_RETRIES = 3              # Maximum 3 attempts per day
 
 
 def init_auto_sync_db():
-    """Ensure auto_sync_config table exists in PostgreSQL."""
+    """Ensure auto_sync_config table and columns exist in PostgreSQL."""
     try:
         pg = get_db()
         c = pg.cursor()
@@ -415,8 +417,12 @@ def init_auto_sync_db():
                 id INT PRIMARY KEY DEFAULT 1,
                 is_enabled BOOLEAN DEFAULT TRUE,
                 sync_time VARCHAR(10) DEFAULT '00:00',
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_sync_at TIMESTAMP DEFAULT NULL,
+                last_sync_summary TEXT DEFAULT NULL
             );
+            ALTER TABLE auto_sync_config ADD COLUMN IF NOT EXISTS last_sync_at TIMESTAMP DEFAULT NULL;
+            ALTER TABLE auto_sync_config ADD COLUMN IF NOT EXISTS last_sync_summary TEXT DEFAULT NULL;
             INSERT INTO auto_sync_config (id, is_enabled, sync_time)
             VALUES (1, TRUE, '00:00')
             ON CONFLICT (id) DO NOTHING;
@@ -427,43 +433,69 @@ def init_auto_sync_db():
         print(f"[AutoSync DB Init Error] {e}")
 
 
+def update_auto_sync_last_run(summary, is_success=True):
+    """Saves last sync timestamp and summary into auto_sync_config table."""
+    try:
+        init_auto_sync_db()
+        pg = get_db()
+        c = pg.cursor()
+        c.execute("""
+            UPDATE auto_sync_config
+            SET last_sync_at = CURRENT_TIMESTAMP,
+                last_sync_summary = %s
+            WHERE id = 1
+        """, (summary,))
+        pg.commit()
+        pg.close()
+    except Exception as e:
+        print(f"[AutoSync Update Last Run Error] {e}")
+
+
 def get_auto_sync_config():
-    """Fetches auto sync config (is_enabled, sync_time, last_sync_at, last_sync_summary) from existing DB tables without adding columns."""
+    """Fetches auto sync config (is_enabled, sync_time, last_sync_at, last_sync_summary) from DB."""
     init_auto_sync_db()
     last_sync_at = None
     last_sync_summary = None
+    is_enabled = True
+    sync_time = '00:00'
     try:
         pg = get_db()
         c = pg.cursor()
-        c.execute("SELECT is_enabled, sync_time FROM auto_sync_config WHERE id=1")
+        c.execute("SELECT is_enabled, sync_time, last_sync_at, last_sync_summary FROM auto_sync_config WHERE id=1")
         row = fetchone(c)
+        if row:
+            is_enabled = bool(row.get('is_enabled', True))
+            sync_time = str(row.get('sync_time', '00:00')).strip() or '00:00'
+            last_sync_at = row.get('last_sync_at')
+            last_sync_summary = row.get('last_sync_summary')
 
-        # Query existing audit_logs table for the last employee sync entry
-        c.execute("""
-            SELECT created_at, description FROM audit_logs
-            WHERE module='employee_sync' OR action IN ('manual_sync', 'auto_sync', 'sync', 'sync_failed')
-            ORDER BY created_at DESC LIMIT 1
-        """)
-        audit_last = fetchone(c)
-        if audit_last:
-            last_sync_at = audit_last.get('created_at')
-            last_sync_summary = audit_last.get('description')
+        # Fallback to audit_logs if last_sync_at is not yet populated in auto_sync_config
+        if not last_sync_at:
+            c.execute("""
+                SELECT created_at, description FROM audit_logs
+                WHERE module='employee_sync' OR action IN ('manual_sync', 'auto_sync', 'sync', 'sync_failed')
+                ORDER BY created_at DESC LIMIT 1
+            """)
+            audit_last = fetchone(c)
+            if audit_last:
+                last_sync_at = audit_last.get('created_at')
+                last_sync_summary = audit_last.get('description')
 
         pg.close()
-        if row:
-            return {
-                'is_enabled': bool(row.get('is_enabled', True)),
-                'sync_time': str(row.get('sync_time', '00:00')).strip() or '00:00',
-                'last_sync_at': last_sync_at,
-                'last_sync_summary': last_sync_summary
-            }
     except Exception as e:
         print(f"[AutoSync Get Config Error] {e}")
-    return {'is_enabled': True, 'sync_time': '00:00', 'last_sync_at': last_sync_at, 'last_sync_summary': last_sync_summary}
+
+    return {
+        'is_enabled': is_enabled,
+        'sync_time': sync_time,
+        'last_sync_at': last_sync_at,
+        'last_sync_summary': last_sync_summary
+    }
 
 
 def save_auto_sync_config(is_enabled, sync_time):
-    """Saves auto sync config into DB."""
+    """Saves auto sync config into DB and resets worker state so new schedule is active immediately."""
+    global _last_executed_day
     init_auto_sync_db()
     sync_time_clean = (sync_time or '00:00').strip()
     try:
@@ -479,38 +511,12 @@ def save_auto_sync_config(is_enabled, sync_time):
         """, (is_enabled, sync_time_clean))
         pg.commit()
         pg.close()
+        # Reset execution key so newly configured schedule or re-enablement takes effect immediately
+        _last_executed_day = None
         return True
     except Exception as e:
         print(f"[AutoSync Save Config Error] {e}")
         return False
-
-
-def get_seconds_until_target_time(sync_time_str):
-    """
-    Calculates seconds remaining from now until target sync time (HH:MM format).
-    If target time today is in the future, target is today HH:MM.
-    If target time today has already passed, target is tomorrow HH:MM.
-    """
-    now = datetime.datetime.now()
-    try:
-        parts = sync_time_str.split(':')
-        target_hour = int(parts[0])
-        target_minute = int(parts[1])
-    except Exception:
-        target_hour = 0
-        target_minute = 0
-
-    target_today = datetime.datetime.combine(
-        now.date(),
-        datetime.time(hour=target_hour, minute=target_minute)
-    )
-
-    if now < target_today:
-        target_dt = target_today
-    else:
-        target_dt = target_today + datetime.timedelta(days=1)
-
-    return max(1.0, (target_dt - now).total_seconds())
 
 
 def run_daily_auto_sync(scheduled_time="00:00"):
@@ -519,22 +525,28 @@ def run_daily_auto_sync(scheduled_time="00:00"):
     If an attempt fails, it waits 15 minutes before the next retry.
     After 3 failed attempts, it stops for the day and waits for next scheduled time.
     """
+    print(f"[AutoSync] Starting auto-sync process scheduled for {scheduled_time}...")
     log_error(source='auto_sync', message=f"Starting daily auto-sync process scheduled at {scheduled_time}.", level='INFO')
 
     for attempt in range(1, MAX_SYNC_RETRIES + 1):
         res = perform_employee_sync()
         if res['success']:
             msg = f"Auto-sync succeeded on attempt {attempt}/{MAX_SYNC_RETRIES} (Scheduled for {scheduled_time}): {res['summary']}"
+            print(f"[AutoSync] {msg}")
             log_action('auto_sync', 'employee_sync', None, msg)
+            update_auto_sync_last_run(res['summary'], is_success=True)
             if res.get('error_log'):
                 log_error(source='auto_sync', message=f"Auto-sync warnings: {' | '.join(res['error_log'])}", level='WARNING')
             return True
         else:
             err = res.get('error_message') or 'Sync process returned failure'
+            fail_msg = f"Auto-sync attempt {attempt}/{MAX_SYNC_RETRIES} failed: {err}"
+            print(f"[AutoSync] {fail_msg}")
+            update_auto_sync_last_run(f"Failed: {err}", is_success=False)
             if attempt < MAX_SYNC_RETRIES:
                 log_error(
                     source='auto_sync',
-                    message=f"Auto-sync attempt {attempt}/{MAX_SYNC_RETRIES} failed: {err}. Retrying in 15 minutes...",
+                    message=f"{fail_msg}. Retrying in 15 minutes...",
                     level='WARNING'
                 )
                 if _stop_event.wait(RETRY_INTERVAL_SECONDS):
@@ -549,29 +561,79 @@ def run_daily_auto_sync(scheduled_time="00:00"):
 
 
 def _auto_sync_worker():
-    """Background worker loop that checks config and triggers daily auto-sync."""
+    """
+    Background worker loop that checks configuration and triggers daily auto-sync.
+    Wakes up every 5 seconds to verify if current time has reached or passed
+    the scheduled time for today without having executed yet today.
+    """
     global _last_executed_day
 
+    # Initialize last executed date from DB so a server restart doesn't re-run or lose state
+    try:
+        cfg = get_auto_sync_config()
+        if cfg.get('last_sync_at'):
+            last_at = cfg['last_sync_at']
+            if hasattr(last_at, 'strftime'):
+                _last_executed_day = f"{last_at.strftime('%Y-%m-%d')}_{cfg.get('sync_time', '00:00')}"
+    except Exception:
+        pass
+
+    print("[AutoSync] Background employee sync worker active.")
+
     while not _stop_event.is_set():
-        config = get_auto_sync_config()
-        if not config['is_enabled']:
-            # Auto sync is disabled: check again in 5 seconds
+        try:
+            config = get_auto_sync_config()
+            if not config.get('is_enabled', True):
+                # Auto sync disabled: wait 10 seconds before rechecking
+                if _stop_event.wait(10):
+                    break
+                continue
+
+            sync_time_str = config.get('sync_time', '00:00')
+            try:
+                parts = sync_time_str.split(':')
+                target_hour = int(parts[0])
+                target_minute = int(parts[1])
+            except Exception:
+                target_hour = 0
+                target_minute = 0
+
+            now = datetime.datetime.now()
+            today_str = now.strftime('%Y-%m-%d')
+            run_key = f"{today_str}_{sync_time_str}"
+
+            target_today = datetime.datetime.combine(
+                now.date(),
+                datetime.time(hour=target_hour, minute=target_minute)
+            )
+
+            # It is time to run if:
+            # 1. Current clock is >= target_today
+            # 2. We haven't executed this run_key in memory today
+            if now >= target_today and _last_executed_day != run_key:
+                # Double-check DB to prevent duplicate runs across multi-worker / restarts
+                already_run = False
+                if config.get('last_sync_at'):
+                    last_at = config['last_sync_at']
+                    # If synced today within the last 5 minutes, consider it done
+                    if hasattr(last_at, 'date') and last_at.date() == now.date():
+                        if (now - last_at).total_seconds() < 300:
+                            already_run = True
+
+                if not already_run:
+                    print(f"[AutoSync] Target time {sync_time_str} reached for {today_str}. Starting sync...")
+                    _last_executed_day = run_key
+                    run_daily_auto_sync(sync_time_str)
+                else:
+                    _last_executed_day = run_key
+
+            # Sleep in short 5-second intervals to stay responsive to config updates
             if _stop_event.wait(5):
                 break
-            continue
 
-        sync_time_str = config['sync_time']
-        seconds_to_wait = get_seconds_until_target_time(sync_time_str)
-        today_key = f"{datetime.datetime.now().strftime('%Y-%m-%d')}_{sync_time_str}"
-
-        # If we are within 5 seconds of target time AND haven't run for today's key:
-        if seconds_to_wait <= 5 and _last_executed_day != today_key:
-            _last_executed_day = today_key
-            run_daily_auto_sync(sync_time_str)
-        else:
-            # Sleep in short 5-second intervals to remain responsive to UI config updates
-            sleep_chunk = min(seconds_to_wait, 5.0)
-            if _stop_event.wait(sleep_chunk):
+        except Exception as e:
+            print(f"[AutoSync Worker Loop Error] {e}")
+            if _stop_event.wait(10):
                 break
 
 
@@ -581,8 +643,11 @@ def start_auto_sync_scheduler():
     """
     global _scheduler_thread
 
-    # Prevent duplicate thread in Flask debug reloader parent process
-    if os.environ.get('WERKZEUG_RUN_MAIN') == 'false':
+    # In Flask debug mode, Werkzeug runs two processes:
+    # 1. The monitor/reloader parent process (where WERKZEUG_RUN_MAIN is not set)
+    # 2. The actual worker child process (where WERKZEUG_RUN_MAIN is 'true')
+    # If debug mode is active, only run in the child process.
+    if 'WERKZEUG_RUN_MAIN' in os.environ and os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
         return
 
     with _scheduler_lock:

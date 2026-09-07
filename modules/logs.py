@@ -12,7 +12,7 @@ right after a successful create/edit/delete, e.g.:
 """
 
 import traceback as tb_module
-from flask import Blueprint, render_template, request, session
+from flask import Blueprint, render_template, request, session, has_request_context
 from database.db import get_db, fetchall
 
 logs_bp = Blueprint('logs', __name__, url_prefix='/admin/logs')
@@ -35,8 +35,6 @@ def admin_required(f):
 
 # ---------- write helpers (call these from other modules) ----------
 
-# ---------- write helpers (call these from other modules) ----------
-
 def cleanup_old_logs():
     """
     Deletes audit logs and error logs older than 3 months from PostgreSQL database.
@@ -54,40 +52,50 @@ def cleanup_old_logs():
 
 
 def log_action(action, module, record_id, description, department=None):
-    """Record a create/edit/delete/login/logout audit entry for the currently logged-in user.
+    """Record a create/edit/delete/login/logout audit entry.
+    Safe to call from HTTP request handlers or background threads.
     Never raises - a logging failure must not break the calling request."""
     try:
         cleanup_old_logs()
         conn = get_db()
         c = conn.cursor()
-        dept = department if department is not None else session.get('department')
+        if has_request_context():
+            user = session.get('user')
+            full_name = session.get('full_name')
+            dept = department if department is not None else session.get('department')
+        else:
+            user = 'System (Auto-Sync)'
+            full_name = 'Background Scheduler'
+            dept = department or 'System'
+
         c.execute(
             """INSERT INTO audit_logs (username, full_name, department, action, module, record_id, description)
                VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-            (session.get('user'), session.get('full_name'), dept, action, module,
+            (user, full_name, dept, action, module,
              str(record_id) if record_id is not None else None, description)
         )
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[Log Action Error] {e}")
 
 
 def log_error(source, message, traceback_str=None, method=None, path=None, level='ERROR'):
-    """Record an unhandled exception / error. Never raises."""
+    """Record an unhandled exception / error. Safe to call from background threads. Never raises."""
     try:
         cleanup_old_logs()
         conn = get_db()
         c = conn.cursor()
+        user = session.get('user') if has_request_context() else 'System'
         c.execute(
             """INSERT INTO error_logs (level, source, method, path, message, traceback, username)
                VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-            (level, source, method, path, message, traceback_str, session.get('user'))
+            (level, source, method, path, message, traceback_str, user)
         )
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[Log Error Error] {e}")
 
 
 # ---------- admin page ----------

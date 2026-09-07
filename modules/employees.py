@@ -341,6 +341,111 @@ def bulk_delete():
         conn.close()
 
 
+@employees_bp.route('/employees/bulk-edit', methods=['POST'])
+def bulk_edit():
+    if 'user' not in session or not has_permission('can_edit'):
+        return jsonify({'success': False, 'message': 'Access denied.'})
+
+    data = request.get_json() or {}
+    emp_ids = data.get('emp_ids', [])
+    if not emp_ids:
+        return jsonify({'success': False, 'message': 'No employees selected.'})
+
+    update_fields = {}
+
+    # Department
+    department = data.get('department')
+    if department is not None and department != '__KEEP__':
+        update_fields['department'] = department.strip() if department else None
+
+    # Contractor
+    contractor = data.get('contractor')
+    if contractor is not None and contractor != '__KEEP__':
+        update_fields['contractor'] = contractor.strip() if contractor else None
+
+    # Designation
+    if data.get('update_designation'):
+        update_fields['designation'] = (data.get('designation') or '').strip()
+
+    # Status
+    status = data.get('status')
+    if status is not None and status != '__KEEP__':
+        if status in ['Active', 'Inactive']:
+            update_fields['status'] = status
+
+    if not update_fields:
+        return jsonify({'success': False, 'message': 'No changes were specified to update.'})
+
+    role = session.get('role')
+    is_admin = role in ['Admin', 'Super Admin']
+    dept = session.get('department')
+    assigned = session.get('assigned_departments') or []
+
+    conn = get_db()
+    c = conn.cursor()
+    try:
+        # If not admin, restrict to employees in allowed departments
+        id_placeholders = ','.join(['%s'] * len(emp_ids))
+        if not is_admin:
+            dept_variants = []
+            if dept:
+                dept_variants.append(dept.lower())
+            for d in assigned:
+                if d and d.lower() not in dept_variants:
+                    dept_variants.append(d.lower())
+
+            c.execute(
+                f"SELECT id FROM employees WHERE id IN ({id_placeholders}) AND LOWER(TRIM(department)) = ANY(%s)",
+                emp_ids + [dept_variants]
+            )
+            allowed_rows = fetchall(c)
+            target_ids = [r['id'] for r in allowed_rows]
+            if not target_ids:
+                return jsonify({'success': False, 'message': 'You do not have permission to edit the selected employees.'})
+        else:
+            target_ids = emp_ids
+
+        set_clauses = []
+        params = []
+        for field, val in update_fields.items():
+            if field == 'status':
+                set_clauses.append("""
+                    status = %s,
+                    inactive_date = CASE
+                        WHEN %s = 'Inactive' AND (status IS NULL OR status != 'Inactive') THEN CURRENT_TIMESTAMP
+                        WHEN %s = 'Active' THEN NULL
+                        ELSE inactive_date
+                    END
+                """)
+                params.extend([val, val, val])
+            else:
+                set_clauses.append(f"{field} = %s")
+                params.append(val)
+
+        placeholders = ','.join(['%s'] * len(target_ids))
+        query = f"UPDATE employees SET {', '.join(set_clauses)} WHERE id IN ({placeholders})"
+        params.extend(target_ids)
+
+        c.execute(query, params)
+        updated_count = c.rowcount
+        conn.commit()
+
+        field_summary = ", ".join(f"{k}={v}" for k, v in update_fields.items())
+        log_action('edit', 'employees', None, f"Bulk edited {updated_count} employees: {field_summary}")
+
+        return jsonify({
+            'success': True,
+            'message': f'{updated_count} employees updated successfully.',
+            'count': updated_count
+        })
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)})
+    finally:
+        conn.close()
+
+
+
 # ← ADD — lets an admin see/undo tombstones, and re-allow a specific emp_code
 # to be picked up by the sync again.
 @employees_bp.route('/employees/deleted')

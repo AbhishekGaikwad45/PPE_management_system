@@ -42,8 +42,13 @@
 <div id="empPagePermissions" data-can-edit="{{ '1' if can_edit else '0' }}" data-can-delete="{{ '1' if can_delete else '0' }}" style="display:none;"></div>
 
 <!-- Top Buttons -->
-{% if can_create or can_delete %}
+{% if can_create or can_delete or can_edit %}
 <div class="d-flex justify-content-end mb-3 gap-2 flex-wrap">
+  {% if can_edit %}
+  <button type="button" id="bulkEditBtn" class="btn btn-outline-primary d-none" data-bs-toggle="modal" data-bs-target="#bulkEditModal">
+    <i class="fas fa-edit me-1"></i> Bulk Edit (<span id="bulkEditCount">0</span>)
+  </button>
+  {% endif %}
   {% if can_delete %}
   <button type="button" id="bulkDeleteBtn" class="btn btn-outline-danger d-none">
     <i class="fas fa-trash-alt me-1"></i> Bulk Delete (<span id="bulkDeleteCount">0</span>)
@@ -139,7 +144,7 @@
             </a>
           {% endmacro %}
           <tr>
-            {% if can_delete %}
+            {% if can_delete or can_edit %}
             <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>
             {% endif %}
             <th>{{ sort_link('emp_code', 'Emp Code') }}</th>
@@ -154,7 +159,7 @@
         <tbody>
           {% for e in employees %}
           <tr class="emp-row">
-            {% if can_delete %}
+            {% if can_delete or can_edit %}
             <td><input type="checkbox" class="form-check-input emp-checkbox" value="{{ e.id }}"></td>
             {% endif %}
             <td><code class="text-danger">{{ e.emp_code }}</code></td>
@@ -260,7 +265,7 @@
 
           {% else %}
           <tr>
-            <td colspan="7" class="text-center text-muted py-4">No employees added yet.</td>
+            <td colspan="{{ 8 if (can_delete or can_edit) else 7 }}" class="text-center text-muted py-4">No employees added yet.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -335,6 +340,76 @@
     </div>
   </div>
 </div>
+
+{% if can_edit %}
+<!-- ===== BULK EDIT MODAL ===== -->
+<div class="modal fade" id="bulkEditModal" tabindex="-1" aria-labelledby="bulkEditModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#1A3A5C; color:#fff;">
+        <h5 class="modal-title" id="bulkEditModalLabel">
+          <i class="fas fa-edit me-2"></i>Bulk Edit Employees (<span id="bulkEditModalCount">0</span> selected)
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="bulkEditForm">
+        <div class="modal-body">
+          <div class="alert alert-info py-2 px-3 mb-3 small">
+            <i class="fas fa-info-circle me-1"></i> Only fields that you choose to change will be updated. Fields left as <strong>"-- Keep unchanged --"</strong> will remain untouched for all selected employees.
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Department</label>
+            <select id="bulkEditDepartment" name="department" class="form-select">
+              <option value="__KEEP__">-- Keep unchanged --</option>
+              {% for d in departments %}
+              <option value="{{ d.name }}">{{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Contractor</label>
+            <select id="bulkEditContractor" name="contractor" class="form-select">
+              <option value="__KEEP__">-- Keep unchanged --</option>
+              <option value="">-- None (Direct Employee) --</option>
+              {% for c in contractors %}
+              <option value="{{ c.name }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <label class="form-label fw-semibold mb-0" for="bulkEditDesignation">Designation</label>
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="bulkUpdateDesignationCheck">
+                <label class="form-check-label small text-muted" for="bulkUpdateDesignationCheck">Update Designation</label>
+              </div>
+            </div>
+            <input type="text" id="bulkEditDesignation" name="designation" class="form-control" placeholder="Disabled (leave unchanged)" disabled>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Status</label>
+            <select id="bulkEditStatus" name="status" class="form-select">
+              <option value="__KEEP__">-- Keep unchanged --</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-jsw" id="bulkEditSubmitBtn">
+            <i class="fas fa-save me-1"></i> Apply Changes
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <!-- ===== IMPORT EXCEL MODAL ===== -->
 <div class="modal fade" id="importExcelModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
@@ -445,8 +520,8 @@
         window.history.replaceState(null, '', searchUrl);
       }
 
-      // 5. Re-bind Bulk Delete listeners
-      initBulkDelete();
+      // 5. Re-bind Bulk listeners
+      initBulkOperations();
     })
     .catch(function(err) {
       console.error('Search error:', err);
@@ -557,22 +632,39 @@ if (importModalEl) {
   });
 }
 
-// ── 4. Bulk Delete Logic ────────────────────
-function initBulkDelete() {
+// ── 4. Bulk Delete & Bulk Edit Logic ────────────────────
+function initBulkOperations() {
   var selectAll = document.getElementById('selectAll');
   var empCheckboxes = document.querySelectorAll('.emp-checkbox');
   var bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
   var bulkDeleteCount = document.getElementById('bulkDeleteCount');
+  var bulkEditBtn = document.getElementById('bulkEditBtn');
+  var bulkEditCount = document.getElementById('bulkEditCount');
+  var bulkEditModalCount = document.getElementById('bulkEditModalCount');
 
-  function updateBulkDeleteBtn() {
-    if (!bulkDeleteBtn) return;
-    var checked = document.querySelectorAll('.emp-checkbox:checked').length;
-    if (checked > 0) {
-      bulkDeleteCount.textContent = checked;
-      bulkDeleteBtn.classList.remove('d-none');
-    } else {
-      bulkDeleteBtn.classList.add('d-none');
+  function updateBulkButtons() {
+    var checkedBoxes = document.querySelectorAll('.emp-checkbox:checked');
+    var count = checkedBoxes.length;
+
+    if (bulkDeleteBtn && bulkDeleteCount) {
+      if (count > 0) {
+        bulkDeleteCount.textContent = count;
+        bulkDeleteBtn.classList.remove('d-none');
+      } else {
+        bulkDeleteBtn.classList.add('d-none');
+      }
     }
+
+    if (bulkEditBtn && bulkEditCount) {
+      if (count > 0) {
+        bulkEditCount.textContent = count;
+        bulkEditBtn.classList.remove('d-none');
+      } else {
+        bulkEditBtn.classList.add('d-none');
+      }
+    }
+
+    if (bulkEditModalCount) bulkEditModalCount.textContent = count;
   }
 
   if (selectAll) {
@@ -582,25 +674,146 @@ function initBulkDelete() {
       document.querySelectorAll('.emp-checkbox').forEach(function(cb) {
         cb.checked = isChecked;
       });
-      updateBulkDeleteBtn();
+      updateBulkButtons();
     };
   }
 
-  document.querySelectorAll('.emp-checkbox').forEach(function(cb) {
+  empCheckboxes.forEach(function(cb) {
     cb.onchange = function() {
       if (!this.checked && selectAll) {
         selectAll.checked = false;
-      } else if (document.querySelectorAll('.emp-checkbox:checked').length === document.querySelectorAll('.emp-checkbox').length && selectAll) {
+      } else if (selectAll && document.querySelectorAll('.emp-checkbox:checked').length === document.querySelectorAll('.emp-checkbox').length) {
         selectAll.checked = true;
       }
-      updateBulkDeleteBtn();
+      updateBulkButtons();
     };
   });
 
-  updateBulkDeleteBtn();
+  updateBulkButtons();
+
+  // Wire Bulk Delete Action
+  if (bulkDeleteBtn) {
+    bulkDeleteBtn.onclick = function() {
+      var selected = Array.from(document.querySelectorAll('.emp-checkbox:checked')).map(function(cb) {
+        return parseInt(cb.value);
+      });
+      if (!selected.length) return;
+      if (!confirm('Are you sure you want to delete ' + selected.length + ' selected employee(s)?')) return;
+
+      bulkDeleteBtn.disabled = true;
+      fetch('{{ url_for("employees.bulk_delete") }}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ emp_ids: selected })
+      })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        bulkDeleteBtn.disabled = false;
+        if (data.success) {
+          location.reload();
+        } else {
+          alert('Delete failed: ' + (data.message || 'Unknown error'));
+        }
+      })
+      .catch(function(err) {
+        bulkDeleteBtn.disabled = false;
+        alert('Error: ' + err);
+      });
+    };
+  }
 }
 
-initBulkDelete();
+// Designation switch toggle in Bulk Edit Modal
+var bulkUpdateDesignationCheck = document.getElementById('bulkUpdateDesignationCheck');
+var bulkEditDesignation = document.getElementById('bulkEditDesignation');
+if (bulkUpdateDesignationCheck && bulkEditDesignation) {
+  bulkUpdateDesignationCheck.addEventListener('change', function() {
+    bulkEditDesignation.disabled = !this.checked;
+    if (this.checked) {
+      bulkEditDesignation.placeholder = 'Enter new designation';
+      bulkEditDesignation.focus();
+    } else {
+      bulkEditDesignation.placeholder = 'Disabled (leave unchanged)';
+      bulkEditDesignation.value = '';
+    }
+  });
+}
+
+// Bulk Edit Form Submission
+var bulkEditForm = document.getElementById('bulkEditForm');
+if (bulkEditForm) {
+  bulkEditForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    var selected = Array.from(document.querySelectorAll('.emp-checkbox:checked')).map(function(cb) {
+      return parseInt(cb.value);
+    });
+
+    if (!selected.length) {
+      alert('Please select at least one employee to edit.');
+      return;
+    }
+
+    var deptVal = document.getElementById('bulkEditDepartment').value;
+    var contrVal = document.getElementById('bulkEditContractor').value;
+    var updateDesig = document.getElementById('bulkUpdateDesignationCheck') ? document.getElementById('bulkUpdateDesignationCheck').checked : false;
+    var desigVal = document.getElementById('bulkEditDesignation') ? document.getElementById('bulkEditDesignation').value : '';
+    var statusVal = document.getElementById('bulkEditStatus').value;
+
+    if (deptVal === '__KEEP__' && contrVal === '__KEEP__' && !updateDesig && statusVal === '__KEEP__') {
+      alert('Please change at least one field to update the selected employees.');
+      return;
+    }
+
+    if (!confirm('Apply changes to ' + selected.length + ' selected employee(s)?')) {
+      return;
+    }
+
+    var submitBtn = document.getElementById('bulkEditSubmitBtn');
+    if (submitBtn) submitBtn.disabled = true;
+
+    var payload = {
+      emp_ids: selected,
+      department: deptVal,
+      contractor: contrVal,
+      update_designation: updateDesig,
+      designation: desigVal,
+      status: statusVal
+    };
+
+    fetch('{{ url_for("employees.bulk_edit") }}', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify(payload)
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (submitBtn) submitBtn.disabled = false;
+      if (data.success) {
+        var modalEl = document.getElementById('bulkEditModal');
+        if (modalEl) {
+          var modalInstance = bootstrap.Modal.getInstance(modalEl);
+          if (modalInstance) modalInstance.hide();
+        }
+        location.reload();
+      } else {
+        alert('Bulk update failed: ' + (data.message || 'Unknown error'));
+      }
+    })
+    .catch(function(err) {
+      if (submitBtn) submitBtn.disabled = false;
+      alert('Error updating employees: ' + err);
+    });
+  });
+}
+
+initBulkOperations();
 
 </script>
 {% endblock %}
