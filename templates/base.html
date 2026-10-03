@@ -732,7 +732,7 @@
         <i class="fas fa-boxes"></i> <span>Item Master</span>
       </a>
       {% endif %}
-      {% if has_permission('can_view', 'department_stock') %}
+      {% if session.get('role') in ['Admin', 'Super Admin'] %}
       <a href="{{ url_for('department_stock.index') }}" class="nav-link {% if 'department_stock' in request.endpoint %}active{% endif %}">
         <i class="fas fa-warehouse me-2"></i> <span>Department Stock</span>
       </a>

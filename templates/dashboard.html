@@ -647,11 +647,14 @@
     data: {
       labels: trend.map(r => r.month),
       datasets: [{
+        label: 'Consumption',
+        data: trend.map(r => r.total),
         tension: .45,
         fill: true,
         pointRadius: 5,
         pointHoverRadius: 8,
         borderWidth: 4,
+        borderColor: "#2563eb",
         backgroundColor: "rgba(37,99,235,.15)"
       }]
     },

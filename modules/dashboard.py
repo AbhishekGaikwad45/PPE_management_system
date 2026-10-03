@@ -48,13 +48,13 @@ def index():
     # # Total Stock
     # # ==========================
     # if is_admin:
-    #     # Admin ला सर्व department चा stock
+    #    
     #     c.execute("""
     #         SELECT COALESCE(SUM(qty),0)
     #         FROM stock_receipts
     #     """)
     # else:
-    #     # Department User ला फक्त त्याच्या department चा stock
+    #     
     #     c.execute("""
     #         SELECT COALESCE(SUM(qty),0)
     #         FROM stock_receipts
@@ -602,6 +602,7 @@ def index():
     return render_template(
         "dashboard.html",
         is_admin=is_admin,
+        today=today,
         total_employees=total_employees,
         total_items=total_items,
         total_stock=total_stock,
