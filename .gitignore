@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+.venv
+env/
+venv/
+ENV/
+uploads/*
+!uploads/.gitkeep
+*.db
+.DS_Store
+Thumbs.db

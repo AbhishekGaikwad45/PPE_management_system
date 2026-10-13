@@ -734,7 +734,7 @@
       {% endif %}
       {% if session.get('role') in ['Admin', 'Super Admin'] %}
       <a href="{{ url_for('department_stock.index') }}" class="nav-link {% if 'department_stock' in request.endpoint %}active{% endif %}">
-        <i class="fas fa-warehouse me-2"></i> <span>Department Stock</span>
+        <i class="fas fa-warehouse "></i><span>Department Stock</span>
       </a>
       {% endif %}
     </div>
@@ -781,14 +781,19 @@
     </div>
     {% endif %}
 
-    {% if has_permission('can_view', 'reports') %}
     <div class="nav-section">
-      <div class="nav-section-title">Reports</div>
+      <div class="nav-section-title">Reports & Documents</div>
+      {% if has_permission('can_view', 'reports') %}
       <a class="nav-link {% if 'reports' in request.endpoint %}active{% endif %}" href="{{ url_for('reports.index') }}">
         <i class="fas fa-chart-bar"></i> <span>Reports & KPI</span>
       </a>
+      {% endif %}
+      {% if has_permission('can_view', 'documents') %}
+      <a class="nav-link {% if 'documents' in request.endpoint %}active{% endif %}" href="{{ url_for('documents.index') }}">
+        <i class="fas fa-folder-open"></i> <span>Compliance Report</span>
+      </a>
+      {% endif %}
     </div>
-    {% endif %}
   </div>
 
   <!-- Main Content -->

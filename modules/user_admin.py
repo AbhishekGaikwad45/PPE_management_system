@@ -29,17 +29,18 @@ ROLES = ['Admin', 'Super Admin', 'Safety Officer', 'Store Keeper', 'Viewer', 'De
 ASSIGNABLE_ROLES = [r for r in ROLES if r not in ('Admin', 'Super Admin')]
 
 SYSTEM_MODULES = [
-    {'id': 'employees', 'name': 'Employees', 'icon': 'fas fa-users'},
-    {'id': 'contractors', 'name': 'Contractors', 'icon': 'fas fa-hard-hat'},
-    {'id': 'items', 'name': 'Item Master', 'icon': 'fas fa-boxes'},
-    {'id': 'department_stock', 'name': 'Department Stock', 'icon': 'fas fa-warehouse'},
-    {'id': 'stock', 'name': 'Stock Receipt', 'icon': 'fas fa-truck-loading'},
-    {'id': 'issues', 'name': 'Issue PPE', 'icon': 'fas fa-hand-holding'},
-    {'id': 'returns', 'name': 'Returns', 'icon': 'fas fa-undo'},
-    {'id': 'contractor_issues', 'name': 'Provided by Contractor', 'icon': 'fas fa-hard-hat'},
-    {'id': 'calibration', 'name': 'Calibration', 'icon': 'fas fa-tools'},
-    {'id': 'reports', 'name': 'Reports & KPI', 'icon': 'fas fa-chart-bar'},
-    {'id': 'logs', 'name': 'Activity & Error Logs', 'icon': 'fas fa-history'},
+    {'id': 'employees', 'code': 'EMP', 'name': 'Employees', 'icon': 'fas fa-users'},
+    {'id': 'contractors', 'code': 'CONT', 'name': 'Contractors', 'icon': 'fas fa-hard-hat'},
+    {'id': 'items', 'code': 'ITEM', 'name': 'Item Master', 'icon': 'fas fa-boxes'},
+    {'id': 'department_stock', 'code': 'DSTK', 'name': 'Department Stock', 'icon': 'fas fa-warehouse'},
+    {'id': 'stock', 'code': 'STK', 'name': 'Stock Receipt', 'icon': 'fas fa-truck-loading'},
+    {'id': 'issues', 'code': 'ISS', 'name': 'Issue PPE', 'icon': 'fas fa-hand-holding'},
+    {'id': 'returns', 'code': 'RET', 'name': 'Returns', 'icon': 'fas fa-undo'},
+    {'id': 'contractor_issues', 'code': 'CISS', 'name': 'Provided by Contractor', 'icon': 'fas fa-hard-hat'},
+    {'id': 'calibration', 'code': 'CAL', 'name': 'Calibration', 'icon': 'fas fa-tools'},
+    {'id': 'reports', 'code': 'REP', 'name': 'Reports & KPI', 'icon': 'fas fa-chart-bar'},
+    {'id': 'documents', 'code': 'DOC', 'name': 'Compliance Report / Documents', 'icon': 'fas fa-folder-open'},
+    {'id': 'logs', 'code': 'LOG', 'name': 'Activity & Error Logs', 'icon': 'fas fa-history'},
 ]
 
 

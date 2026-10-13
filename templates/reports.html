@@ -78,6 +78,13 @@
       <small class="text-muted">List of inactive employees</small>
     </div>
   </div>
+  <div class="col-md-3">
+    <a href="{{ url_for('documents.index') }}" class="card text-center p-3 report-card text-decoration-none">
+      <i class="fas fa-folder-open fa-2x text-info mb-2"></i>
+      <h6 class="text-dark">Department Documents</h6>
+      <small class="text-muted">Upload & view department files</small>
+    </a>
+  </div>
 </div>
 {% endblock %}
 {% block extra_js %}

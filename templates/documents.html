@@ -1,0 +1,534 @@
+{% extends 'base.html' %}
+{% block title %}Compilence Reports{% endblock %}
+{% block page_title %}Compilence Reports{% endblock %}
+
+{% block content %}
+<!-- Simple Filter & Action Bar -->
+<div class="card mb-3">
+  <div class="card-body py-3">
+    <form method="GET" action="{{ url_for('documents.index') }}" class="row g-2 align-items-center">
+      
+      <!-- Search Input -->
+      <div class="col-md-4">
+        <div class="input-group">
+          <span class="input-group-text bg-white"><i class="fas fa-search text-muted"></i></span>
+          <input type="text" name="search" class="form-control" placeholder="Search title or file name..." value="{{ search_query }}">
+        </div>
+      </div>
+
+      <!-- Department Filter (Visible to Admin Only) -->
+      {% if is_admin %}
+      <div class="col-md-3">
+        <select name="department" class="form-select" onchange="this.form.submit()">
+          <option value="">All Departments</option>
+          {% for d in all_departments %}
+          <option value="{{ d }}" {% if selected_dept == d %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      <!-- Category Filter -->
+      <div class="col-md-{{ '3' if is_admin else '5' }}">
+        <select name="category" class="form-select" onchange="this.form.submit()">
+          <option value="">All Categories</option>
+          {% for cat in categories %}
+          <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ cat }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Filter Buttons & Upload -->
+      <div class="col-md-{{ '2' if is_admin else '3' }} d-flex gap-2 justify-content-end">
+        <button type="submit" class="btn btn-primary">
+          <i class="fas fa-filter me-1"></i>Filter
+        </button>
+        {% if search_query or selected_dept or selected_category %}
+        <a href="{{ url_for('documents.index') }}" class="btn btn-outline-secondary" title="Reset Filters">
+          Reset
+        </a>
+        {% endif %}
+        {% if can_create %}
+        <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#uploadDocModal">
+          <i class="fas fa-plus me-1"></i>Upload Document
+        </button>
+        {% endif %}
+      </div>
+
+    </form>
+  </div>
+</div>
+
+<!-- Documents Table -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <i class="fas fa-folder-open text-primary"></i>
+      <span class="fw-bold">Compilence Reports</span>
+      <span class="badge bg-secondary">{{ total_docs }} Total</span>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      {% if can_edit %}
+      <button type="button" id="bulkEditBtn" class="btn btn-sm btn-outline-primary d-none" data-bs-toggle="modal" data-bs-target="#bulkEditModal">
+        <i class="fas fa-edit me-1"></i> Bulk Edit (<span id="bulkEditCount">0</span>)
+      </button>
+      {% endif %}
+      {% if can_delete %}
+      <button type="button" id="bulkDeleteBtn" class="btn btn-sm btn-outline-danger d-none" onclick="executeBulkDelete()">
+        <i class="fas fa-trash-alt me-1"></i> Bulk Delete (<span id="bulkDeleteCount">0</span>)
+      </button>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th style="width: 4%;" class="text-center">
+              <input type="checkbox" id="selectAllDocs" class="form-check-input" title="Select All" onchange="toggleSelectAllDocs(this)">
+            </th>
+            <th style="width: 4%;">#</th>
+            <th style="width: 24%;">Title</th>
+            <th style="width: 12%;">Category</th>
+            <th style="width: 13%;">Department</th>
+            <th style="width: 14%;">Uploaded By</th>
+            <th style="width: 13%;">Uploaded Date</th>
+            <th style="width: 10%;" class="text-center">Document</th>
+            <th style="width: 8%;" class="text-center">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if documents %}
+            {% for doc in documents %}
+            <tr>
+              <td class="text-center">
+                <input type="checkbox" class="form-check-input doc-select-cb" value="{{ doc.id }}" onchange="updateBulkSelection()">
+              </td>
+              <td>{{ loop.index }}</td>
+              
+              <!-- Title -->
+              <td>
+                <div class="fw-semibold text-dark">{{ doc.title }}</div>
+                <small class="text-muted d-block">{{ doc.original_filename }} ({{ doc.file_size_formatted }})</small>
+                {% if doc.description %}
+                <small class="text-secondary fst-italic">{{ doc.description }}</small>
+                {% endif %}
+              </td>
+
+              <!-- Category -->
+              <td>
+                <span class="badge bg-light text-dark border">{{ doc.category }}</span>
+              </td>
+
+              <!-- Department -->
+              <td>
+                <span class="badge bg-primary bg-opacity-10 text-primary">{{ doc.department }}</span>
+              </td>
+
+              <!-- Uploaded By -->
+              <td>
+                <span class="text-dark fw-semibold small">{{ doc.uploaded_by }}</span>
+              </td>
+
+              <!-- Uploaded Date -->
+              <td>
+                <span class="text-dark">{{ doc.created_at.strftime('%d-%b-%Y') if doc.created_at else '-' }}</span>
+                <small class="text-muted d-block">{{ doc.created_at.strftime('%I:%M %p') if doc.created_at else '' }}</small>
+              </td>
+
+              <!-- Document Link / Buttons -->
+              <td class="text-center" style="white-space: nowrap;">
+                <a href="{{ url_for('documents.view_document', doc_id=doc.id) }}" target="_blank" class="btn btn-sm btn-outline-primary" title="View / Open File">
+                  <i class="fas fa-eye me-1"></i>
+                </a>
+                <a href="{{ url_for('documents.download_document', doc_id=doc.id) }}" class="btn btn-sm btn-outline-success ms-1" title="Download Document">
+                  <i class="fas fa-download me-1"></i>
+                </a>
+              </td>
+
+              <!-- Action (Edit & Delete) -->
+              <td class="text-center" style="white-space: nowrap;">
+                {% if can_edit %}
+                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editDocModal{{ doc.id }}" title="Edit Document">
+                  <i class="fas fa-edit"></i>
+                </button>
+                {% endif %}
+                {% if can_delete %}
+                <button type="button" class="btn btn-sm btn-outline-danger ms-1" title="Delete Document" onclick="confirmDeleteDoc({{ doc.id }}, '{{ doc.title | replace("'", "\\'") }}')">
+                  <i class="fas fa-trash"></i>
+                </button>
+                {% endif %}
+                {% if not can_edit and not can_delete %}
+                <span class="text-muted small">—</span>
+                {% endif %}
+              </td>
+            </tr>
+
+            <!-- Edit Document Modal -->
+            <div class="modal fade" id="editDocModal{{ doc.id }}" tabindex="-1" aria-labelledby="editDocModalLabel{{ doc.id }}" aria-hidden="true">
+              <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                  <form method="POST" action="{{ url_for('documents.edit_document', doc_id=doc.id) }}" enctype="multipart/form-data">
+                    <div class="modal-header">
+                      <h5 class="modal-title" id="editDocModalLabel{{ doc.id }}">
+                        <i class="fas fa-edit me-2 text-primary"></i>Edit Document
+                      </h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-start">
+                      <!-- Department -->
+                      <div class="mb-3">
+                        <label class="form-label fw-bold">Department</label>
+                        {% if is_admin %}
+                        <select name="department" class="form-select" required>
+                          {% for d in all_departments %}
+                          <option value="{{ d }}" {% if d == doc.department %}selected{% endif %}>{{ d }}</option>
+                          {% endfor %}
+                        </select>
+                        {% else %}
+                        <input type="text" class="form-control bg-light" value="{{ doc.department }}" readonly>
+                        {% endif %}
+                      </div>
+
+                      <!-- Document Title -->
+                      <div class="mb-3">
+                        <label class="form-label fw-bold">Document Title <span class="text-danger">*</span></label>
+                        <input type="text" name="title" class="form-control" value="{{ doc.title }}" required>
+                      </div>
+
+                      <!-- Category -->
+                      <div class="mb-3">
+                        <label class="form-label fw-bold">Category</label>
+                        <select name="category" class="form-select">
+                          {% for cat in categories %}
+                          <option value="{{ cat }}" {% if cat == doc.category %}selected{% endif %}>{{ cat }}</option>
+                          {% endfor %}
+                        </select>
+                      </div>
+
+                      <!-- Replace File (Optional) -->
+                      <div class="mb-3">
+                        <label class="form-label fw-bold">Replace File <small class="text-muted fw-normal">(Optional)</small></label>
+                        <input type="file" name="document" class="form-control" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.zip">
+                        <small class="text-muted d-block mt-1">Current: <strong>{{ doc.original_filename }}</strong> (leave blank to keep)</small>
+                      </div>
+
+                      <!-- Description -->
+                      <div class="mb-2">
+                        <label class="form-label">Description / Remarks</label>
+                        <textarea name="description" class="form-control" rows="2">{{ doc.description or '' }}</textarea>
+                      </div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                      <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-1"></i>Save Changes
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="9" class="text-center py-5 text-muted">
+                <i class="fas fa-folder-open fa-3x mb-3 text-secondary opacity-50 d-block"></i>
+                <h6>No Documents Found</h6>
+                <p class="small mb-3">No documents uploaded yet for this department.</p>
+                <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#uploadDocModal">
+                  <i class="fas fa-upload me-1"></i>Upload Document Now
+                </button>
+              </td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Document Modal -->
+<div class="modal fade" id="uploadDocModal" tabindex="-1" aria-labelledby="uploadDocModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('documents.upload') }}" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title" id="uploadDocModalLabel">
+            <i class="fas fa-upload me-2 text-primary"></i>Upload Document
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <div class="modal-body">
+          
+          <!-- Uploaded By: Auto-filled with logged-in user -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Uploaded By</label>
+            <input type="text" class="form-control bg-light" value="{{ session.get('full_name') or session.get('user') }} ({{ session.get('user') }})" readonly>
+          </div>
+
+          <!-- Department Field: Auto-selected for the logged-in user -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Department <span class="text-danger">*</span></label>
+            {% if is_admin %}
+              <!-- Admin: Auto-selected, can change if needed -->
+              <select name="department" class="form-select" required>
+                {% for d in all_departments %}
+                <option value="{{ d }}" {% if d == default_dept %}selected{% endif %}>{{ d }}</option>
+                {% endfor %}
+              </select>
+              <small class="text-success"><i class="fas fa-check-circle me-1"></i>Auto-selected: {{ default_dept }} (you can change if needed)</small>
+            {% else %}
+              <!-- Regular Department User: Automatic from login session -->
+              <input type="text" class="form-control bg-light" value="{{ user_dept }}" readonly>
+              <input type="hidden" name="department" value="{{ user_dept }}">
+              <small class="text-success"><i class="fas fa-check-circle me-1"></i>Auto-selected from your login credentials ({{ user_dept }})</small>
+            {% endif %}
+          </div>
+
+          <!-- Document Title -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Document Title <span class="text-danger">*</span></label>
+            <input type="text" name="title" class="form-control" placeholder="e.g. Safety Audit Report" required>
+          </div>
+
+          <!-- Category -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Category</label>
+            <select name="category" class="form-select">
+              {% for cat in categories %}
+              <option value="{{ cat }}">{{ cat }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Select File -->
+          <div class="mb-3">
+            <label class="form-label fw-bold">Select File <span class="text-danger">*</span></label>
+            <input type="file" name="document" class="form-control" required accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.zip">
+            <small class="text-muted d-block mt-1">Accepted: PDF, Word, Excel, Images, Text, Zip.</small>
+          </div>
+
+          <!-- Description / Remarks -->
+          <div class="mb-2">
+            <label class="form-label">Description / Remarks (Optional)</label>
+            <textarea name="description" class="form-control" rows="2" placeholder="Brief notes about this document..."></textarea>
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-upload me-1"></i>Upload File
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Edit Modal -->
+<div class="modal fade" id="bulkEditModal" tabindex="-1" aria-labelledby="bulkEditModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form id="bulkEditForm" onsubmit="submitBulkEdit(event)">
+        <div class="modal-header">
+          <h5 class="modal-title" id="bulkEditModalLabel">
+            <i class="fas fa-edit me-2 text-primary"></i>Bulk Edit (<span id="bulkEditModalCount">0</span> selected)
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <div class="modal-body text-start">
+          <p class="text-muted small mb-3">Check the fields you want to update across all selected documents.</p>
+
+          <!-- Update Category -->
+          <div class="mb-3 border rounded p-3 bg-light">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="bulkUpdateCategoryCheck" onchange="document.getElementById('bulkEditCategory').disabled = !this.checked">
+              <label class="form-check-label fw-bold" for="bulkUpdateCategoryCheck">
+                Update Category
+              </label>
+            </div>
+            <select id="bulkEditCategory" class="form-select" disabled>
+              {% for cat in categories %}
+              <option value="{{ cat }}">{{ cat }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          {% if is_admin %}
+          <!-- Update Department (Admin only) -->
+          <div class="mb-3 border rounded p-3 bg-light">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="bulkUpdateDeptCheck" onchange="document.getElementById('bulkEditDept').disabled = !this.checked">
+              <label class="form-check-label fw-bold" for="bulkUpdateDeptCheck">
+                Update Department
+              </label>
+            </div>
+            <select id="bulkEditDept" class="form-select" disabled>
+              {% for d in all_departments %}
+              <option value="{{ d }}">{{ d }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+
+          <!-- Update Description / Remarks -->
+          <div class="mb-2 border rounded p-3 bg-light">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="bulkUpdateDescCheck" onchange="document.getElementById('bulkEditDesc').disabled = !this.checked">
+              <label class="form-check-label fw-bold" for="bulkUpdateDescCheck">
+                Update Remarks / Notes
+              </label>
+            </div>
+            <textarea id="bulkEditDesc" class="form-control" rows="2" placeholder="New notes for selected files..." disabled></textarea>
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="bulkEditSubmitBtn">
+            <i class="fas fa-save me-1"></i>Apply Changes
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden Delete Form -->
+<form id="deleteDocForm" method="POST" style="display: none;"></form>
+
+<script>
+function confirmDeleteDoc(id, title) {
+  if (confirm(`Are you sure you want to delete "${title}"?`)) {
+    const form = document.getElementById('deleteDocForm');
+    form.action = `{{ url_for('documents.index') }}delete/${id}`;
+    form.submit();
+  }
+}
+
+function getSelectedDocIds() {
+  const cbs = document.querySelectorAll('.doc-select-cb:checked');
+  return Array.from(cbs).map(cb => parseInt(cb.value));
+}
+
+function updateBulkSelection() {
+  const selected = getSelectedDocIds();
+  const count = selected.length;
+  
+  const editBtn = document.getElementById('bulkEditBtn');
+  const deleteBtn = document.getElementById('bulkDeleteBtn');
+  const editCount = document.getElementById('bulkEditCount');
+  const deleteCount = document.getElementById('bulkDeleteCount');
+  const modalCount = document.getElementById('bulkEditModalCount');
+
+  if (editBtn) {
+    if (count > 0) editBtn.classList.remove('d-none');
+    else editBtn.classList.add('d-none');
+  }
+  if (deleteBtn) {
+    if (count > 0) deleteBtn.classList.remove('d-none');
+    else deleteBtn.classList.add('d-none');
+  }
+  if (editCount) editCount.textContent = count;
+  if (deleteCount) deleteCount.textContent = count;
+  if (modalCount) modalCount.textContent = count;
+
+  const allCbs = document.querySelectorAll('.doc-select-cb');
+  const selectAll = document.getElementById('selectAllDocs');
+  if (selectAll && allCbs.length > 0) {
+    selectAll.checked = (selected.length === allCbs.length);
+  }
+}
+
+function toggleSelectAllDocs(masterCb) {
+  const cbs = document.querySelectorAll('.doc-select-cb');
+  cbs.forEach(cb => cb.checked = masterCb.checked);
+  updateBulkSelection();
+}
+
+function executeBulkDelete() {
+  const ids = getSelectedDocIds();
+  if (ids.length === 0) return;
+  if (!confirm(`Are you sure you want to delete ${ids.length} selected document(s)?`)) return;
+
+  const btn = document.getElementById('bulkDeleteBtn');
+  if (btn) btn.disabled = true;
+
+  fetch('{{ url_for("documents.bulk_delete") }}', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ doc_ids: ids })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      window.location.reload();
+    } else {
+      alert(data.message || 'Error deleting documents.');
+      if (btn) btn.disabled = false;
+    }
+  })
+  .catch(err => {
+    alert('Request failed: ' + err);
+    if (btn) btn.disabled = false;
+  });
+}
+
+function submitBulkEdit(e) {
+  e.preventDefault();
+  const ids = getSelectedDocIds();
+  if (ids.length === 0) {
+    alert('No documents selected.');
+    return;
+  }
+
+  const updateCategory = document.getElementById('bulkUpdateCategoryCheck')?.checked || false;
+  const updateDept = document.getElementById('bulkUpdateDeptCheck')?.checked || false;
+  const updateDesc = document.getElementById('bulkUpdateDescCheck')?.checked || false;
+
+  if (!updateCategory && !updateDept && !updateDesc) {
+    alert('Please check at least one field to update.');
+    return;
+  }
+
+  const payload = {
+    doc_ids: ids,
+    update_category: updateCategory,
+    category: document.getElementById('bulkEditCategory')?.value || '',
+    update_department: updateDept,
+    department: document.getElementById('bulkEditDept')?.value || '',
+    update_description: updateDesc,
+    description: document.getElementById('bulkEditDesc')?.value || ''
+  };
+
+  const submitBtn = document.getElementById('bulkEditSubmitBtn');
+  if (submitBtn) submitBtn.disabled = true;
+
+  fetch('{{ url_for("documents.bulk_edit") }}', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      window.location.reload();
+    } else {
+      alert(data.message || 'Error updating documents.');
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  })
+  .catch(err => {
+    alert('Request failed: ' + err);
+    if (submitBtn) submitBtn.disabled = false;
+  });
+}
+</script>
+{% endblock %}

@@ -55,6 +55,23 @@ def ensure_schema_columns(engine):
         "ALTER TABLE contractor_alias_map ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
         "ALTER TABLE expiry_tracking ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
         "ALTER TABLE calibration_tracking ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+        """CREATE TABLE IF NOT EXISTS department_documents (
+            id SERIAL PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            description TEXT,
+            category VARCHAR(100) DEFAULT 'General',
+            department VARCHAR(100) NOT NULL,
+            original_filename VARCHAR(255) NOT NULL,
+            stored_filename VARCHAR(255) NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size_bytes BIGINT DEFAULT 0,
+            file_type VARCHAR(100),
+            uploaded_by VARCHAR(100),
+            uploaded_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );""",
     ]
 
     with engine.begin() as conn:

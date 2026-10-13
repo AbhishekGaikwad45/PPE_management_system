@@ -17,6 +17,7 @@ from modules.password_reset import password_reset_bp
 from modules.logs import logs_bp, log_error
 from modules.mail_admin import mail_admin_bp
 from modules.department_stock import department_stock_bp
+from modules.documents import documents_bp
 import os
 import traceback
 
@@ -41,6 +42,7 @@ app.register_blueprint(password_reset_bp)
 app.register_blueprint(logs_bp)
 app.register_blueprint(mail_admin_bp)
 app.register_blueprint(department_stock_bp)
+app.register_blueprint(documents_bp)
 
 # Start auto sync scheduler (runs in background thread daily at 12:00 AM midnight with max 3 retries)
 start_auto_sync_scheduler()
