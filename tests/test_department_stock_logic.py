@@ -11,7 +11,7 @@ class TestDepartmentStockLedgerCalculations:
             {'txn_date': '2026-08-03', 'type': 'PPE Issued', 'in_qty': 0, 'out_qty': 20},
             {'txn_date': '2026-08-05', 'type': 'PPE Issued', 'in_qty': 0, 'out_qty': 30},
             {'txn_date': '2026-08-10', 'type': 'Stock Added', 'in_qty': 50, 'out_qty': 0},
-            {'txn_date': '2026-08-12', 'type': 'Contractor Issued', 'in_qty': 0, 'out_qty': 15},
+            {'txn_date': '2026-08-12', 'type': 'PPE Issued', 'in_qty': 0, 'out_qty': 15},
             {'txn_date': '2026-08-15', 'type': 'Returned', 'in_qty': 5, 'out_qty': 0},
         ]
 

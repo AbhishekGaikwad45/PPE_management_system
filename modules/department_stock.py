@@ -291,31 +291,9 @@ def item_history():
         """, (item_name, dept, dept))
         returns = fetchall(c)
 
-        # 4. Contractor Issues (Stock Out)
-        c.execute("""
-            SELECT
-                cir.issue_date AS txn_date,
-                'Contractor Issued' AS type,
-                CONCAT('[', COALESCE(ct.name, 'Contractor'), '] ', COALESCE(e.emp_code, '-'), ' - ', COALESCE(e.name, 'Worker')) AS ref,
-                0 AS in_qty,
-                cir.qty AS out_qty,
-                COALESCE(cir.issued_by, 'Admin') AS actor,
-                COALESCE(cir.remarks, '') AS remarks
-            FROM contractor_issue_register cir
-            JOIN items i ON cir.item_id = i.id
-            LEFT JOIN contractors ct ON cir.contractor_id = ct.id
-            LEFT JOIN employees e ON cir.employee_id = e.id
-            WHERE LOWER(TRIM(i.item_name)) = LOWER(TRIM(%s))
-              AND (
-                  LOWER(TRIM(COALESCE(e.department, ''))) = LOWER(TRIM(%s))
-                  OR LOWER(TRIM(COALESCE(ct.department, ''))) = LOWER(TRIM(%s))
-              )
-        """, (item_name, dept, dept))
-        contractor_issues = fetchall(c)
-
         conn.close()
 
-        all_txns = receipts + issues + returns + contractor_issues
+        all_txns = receipts + issues + returns
 
         # Sort chronological (oldest to newest) to calculate running balance
         all_txns.sort(key=lambda x: (str(x.get('txn_date') or ''), 0 if x.get('type') == 'Stock Added' else 1))
