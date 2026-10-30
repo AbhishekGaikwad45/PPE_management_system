@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, session
+from flask import Blueprint, render_template, request, redirect, url_for, session, jsonify
 from database.db import get_db, fetchall
 from collections import defaultdict
 
@@ -201,3 +201,149 @@ def index():
         search=search,
         is_admin=is_admin
     )
+
+@department_stock_bp.route('/department-stock/item-history')
+def item_history():
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    dept = request.args.get('department', '').strip()
+    item_name = request.args.get('item_name', '').strip()
+    if not dept or not item_name:
+        return jsonify({'error': 'Department and Item Name are required.'}), 400
+
+    role = session.get('role')
+    user_dept = session.get('department')
+    is_admin = role in ['Admin', 'Super Admin']
+
+    if not is_admin:
+        allowed = set()
+        if user_dept:
+            allowed.add(user_dept.lower())
+        for d in (session.get('assigned_departments') or []):
+            if d:
+                allowed.add(d.lower())
+        if dept.lower() not in allowed:
+            return jsonify({'error': 'Access denied to this department.'}), 403
+
+    conn = get_db()
+    c = conn.cursor()
+
+    try:
+        # 1. Stock Receipts (Stock In)
+        c.execute("""
+            SELECT
+                r.receipt_date AS txn_date,
+                'Stock Added' AS type,
+                CONCAT('GRN: ', COALESCE(r.grn_no, '-')) AS ref,
+                r.qty AS in_qty,
+                0 AS out_qty,
+                COALESCE(r.received_by, 'Store') AS actor,
+                COALESCE(r.remarks, '') AS remarks
+            FROM stock_receipts r
+            JOIN items i ON r.item_id = i.id
+            WHERE LOWER(TRIM(i.item_name)) = LOWER(TRIM(%s))
+              AND LOWER(TRIM(r.department)) = LOWER(TRIM(%s))
+        """, (item_name, dept))
+        receipts = fetchall(c)
+
+        # 2. Regular PPE Issues (Stock Out)
+        c.execute("""
+            SELECT
+                ir.issue_date AS txn_date,
+                'PPE Issued' AS type,
+                CONCAT(COALESCE(e.emp_code, '-'), ' - ', COALESCE(e.name, 'Employee')) AS ref,
+                0 AS in_qty,
+                ir.qty AS out_qty,
+                COALESCE(ir.issued_by, 'Admin') AS actor,
+                COALESCE(ir.remarks, '') AS remarks
+            FROM issue_register ir
+            JOIN items i ON ir.item_id = i.id
+            JOIN employees e ON ir.employee_id = e.id
+            WHERE LOWER(TRIM(i.item_name)) = LOWER(TRIM(%s))
+              AND (
+                  LOWER(TRIM(COALESCE(ir.department, ''))) = LOWER(TRIM(%s))
+                  OR (ir.department IS NULL AND LOWER(TRIM(COALESCE(e.department, ''))) = LOWER(TRIM(%s)))
+                  OR (LOWER(TRIM(COALESCE(e.department, ''))) = LOWER(TRIM(%s)))
+              )
+        """, (item_name, dept, dept, dept))
+        issues = fetchall(c)
+
+        # 3. Returns (Stock In)
+        c.execute("""
+            SELECT
+                rr.return_date AS txn_date,
+                'Returned' AS type,
+                CONCAT('Return: ', COALESCE(e.emp_code, '-'), ' - ', COALESCE(e.name, 'Employee')) AS ref,
+                rr.qty_no AS in_qty,
+                0 AS out_qty,
+                COALESCE(rr.received_by, 'Store') AS actor,
+                COALESCE(rr.remarks, '') AS remarks
+            FROM return_register rr
+            LEFT JOIN issue_register ir ON rr.issue_id = ir.id
+            JOIN items i ON rr.item_id = i.id
+            LEFT JOIN employees e ON ir.employee_id = e.id
+            WHERE LOWER(TRIM(i.item_name)) = LOWER(TRIM(%s))
+              AND (
+                  LOWER(TRIM(COALESCE(ir.department, ''))) = LOWER(TRIM(%s))
+                  OR LOWER(TRIM(COALESCE(e.department, ''))) = LOWER(TRIM(%s))
+              )
+        """, (item_name, dept, dept))
+        returns = fetchall(c)
+
+        # 4. Contractor Issues (Stock Out)
+        c.execute("""
+            SELECT
+                cir.issue_date AS txn_date,
+                'Contractor Issued' AS type,
+                CONCAT('[', COALESCE(ct.name, 'Contractor'), '] ', COALESCE(e.emp_code, '-'), ' - ', COALESCE(e.name, 'Worker')) AS ref,
+                0 AS in_qty,
+                cir.qty AS out_qty,
+                COALESCE(cir.issued_by, 'Admin') AS actor,
+                COALESCE(cir.remarks, '') AS remarks
+            FROM contractor_issue_register cir
+            JOIN items i ON cir.item_id = i.id
+            LEFT JOIN contractors ct ON cir.contractor_id = ct.id
+            LEFT JOIN employees e ON cir.employee_id = e.id
+            WHERE LOWER(TRIM(i.item_name)) = LOWER(TRIM(%s))
+              AND (
+                  LOWER(TRIM(COALESCE(e.department, ''))) = LOWER(TRIM(%s))
+                  OR LOWER(TRIM(COALESCE(ct.department, ''))) = LOWER(TRIM(%s))
+              )
+        """, (item_name, dept, dept))
+        contractor_issues = fetchall(c)
+
+        conn.close()
+
+        all_txns = receipts + issues + returns + contractor_issues
+
+        # Sort chronological (oldest to newest) to calculate running balance
+        all_txns.sort(key=lambda x: (str(x.get('txn_date') or ''), 0 if x.get('type') == 'Stock Added' else 1))
+
+        running_balance = 0
+        total_in = 0
+        total_out = 0
+        for row in all_txns:
+            in_q = int(row.get('in_qty') or 0)
+            out_q = int(row.get('out_qty') or 0)
+            total_in += in_q
+            total_out += out_q
+            running_balance += (in_q - out_q)
+            row['balance'] = running_balance
+
+        # Reverse so latest transactions are displayed on top
+        display_history = list(reversed(all_txns))
+
+        return jsonify({
+            'success': True,
+            'department': dept,
+            'item_name': item_name,
+            'total_in': total_in,
+            'total_out': total_out,
+            'current_balance': running_balance,
+            'history': display_history
+        })
+
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500

@@ -118,6 +118,13 @@ def verify_otp():
         flash('Please start the password reset process again.', 'danger')
         return redirect(url_for('password_reset.forgot_password'))
 
+    attempts = session.get('otp_attempts', 0)
+    if attempts >= 5:
+        session.pop('reset_user_id', None)
+        session.pop('otp_attempts', None)
+        flash('Too many failed attempts. Please start the password reset process again.', 'danger')
+        return redirect(url_for('password_reset.forgot_password'))
+
     if request.method == 'POST':
         entered_otp = request.form.get('otp', '').strip()
 
@@ -144,9 +151,17 @@ def verify_otp():
             return redirect(url_for('password_reset.forgot_password'))
 
         if entered_otp != row['otp_code']:
-            flash('Incorrect OTP. Please try again.', 'danger')
+            session['otp_attempts'] = attempts + 1
+            remaining = 5 - (attempts + 1)
+            if remaining <= 0:
+                session.pop('reset_user_id', None)
+                session.pop('otp_attempts', None)
+                flash('Too many failed attempts. Please start the password reset process again.', 'danger')
+                return redirect(url_for('password_reset.forgot_password'))
+            flash(f'Incorrect OTP. {remaining} attempt(s) remaining.', 'danger')
             return redirect(url_for('password_reset.verify_otp'))
 
+        session.pop('otp_attempts', None)
         session['reset_otp_verified'] = True
         return redirect(url_for('password_reset.reset_password'))
 

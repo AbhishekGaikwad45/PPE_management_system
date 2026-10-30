@@ -157,6 +157,16 @@ def edit(id):
         flash('Receipt not found.', 'danger')
         return redirect(url_for('stock.index'))
 
+    is_admin = session.get('role') in ('Admin', 'Super Admin')
+    if not is_admin:
+        from modules.user_admin import get_user_dept_variants
+        dept_variants = get_user_dept_variants() or []
+        rec_dept = (old.get('department') or '').strip().lower()
+        if rec_dept not in dept_variants:
+            conn.close()
+            flash('Access denied: You cannot edit receipts belonging to another department.', 'danger')
+            return redirect(url_for('stock.index'))
+
     receipt_date = request.form.get('receipt_date')
     grn_no = request.form.get('grn_no')
     qty = int(request.form.get('qty', 0))
@@ -194,6 +204,16 @@ def delete(id):
         conn.close()
         flash('Receipt not found.', 'danger')
         return redirect(url_for('stock.index'))
+
+    is_admin = session.get('role') in ('Admin', 'Super Admin')
+    if not is_admin:
+        from modules.user_admin import get_user_dept_variants
+        dept_variants = get_user_dept_variants() or []
+        rec_dept = (rec.get('department') or '').strip().lower()
+        if rec_dept not in dept_variants:
+            conn.close()
+            flash('Access denied: You cannot delete receipts belonging to another department.', 'danger')
+            return redirect(url_for('stock.index'))
 
     c.execute("DELETE FROM stock_receipts WHERE id=%s", (id,))
     c.execute("UPDATE items SET stock = stock - %s WHERE id=%s", (rec['qty'], rec['item_id']))

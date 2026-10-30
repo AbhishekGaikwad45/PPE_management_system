@@ -77,10 +77,10 @@ def get_user_dept_variants():
     assigned = session.get('assigned_departments') or []
 
     raw_list = []
-    if dept:
+    if dept and dept.strip():
         raw_list.append(dept.strip())
     for d in assigned:
-        if d:
+        if d and d.strip():
             raw_list.append(d.strip())
 
     if not raw_list:

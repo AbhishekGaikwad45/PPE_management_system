@@ -484,6 +484,8 @@ def restore(emp_code):
 
 @employees_bp.route('/employees/search')
 def search():
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
     q = request.args.get('q','')
     conn = get_db()
     c = conn.cursor()

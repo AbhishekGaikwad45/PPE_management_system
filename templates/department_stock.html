@@ -309,18 +309,28 @@
                     <th>Issued Qty</th>
                     <th>Unit</th>
                     <th>Status</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for item_name, info in items.items() %}
                   <tr class="{{ 'row-low' if info.current < 10 else 'row-ok' }}">
-                    <td><strong>{{ item_name }}</strong></td>
+                    <td>
+                      <a href="javascript:void(0)" onclick="openItemHistory('{{ dept_name }}', '{{ item_name }}')" class="text-decoration-none fw-bold text-dark d-inline-flex align-items-center gap-1" title="Click to view history">
+                        <span>{{ item_name }}</span>
+                        <i class="fas fa-external-link-alt text-primary" style="font-size:10px;"></i>
+                      </a>
+                    </td>
                     <td>
                       <span class="qty-pill {{ 'danger' if info.current < 10 else 'success' }}">
                         {{ info.current }}
                       </span>
                     </td>
-                    <td><span class="qty-pill amber">{{ info.issued }}</span></td>
+                    <td>
+                      <span class="qty-pill amber" style="cursor:pointer;" onclick="openItemHistory('{{ dept_name }}', '{{ item_name }}')" title="Click to view issue details">
+                        {{ info.issued }}
+                      </span>
+                    </td>
                     <td><span style="color:#64748b;">{{ info.unit }}</span></td>
                     <td>
                       {% if info.current < 10 %}
@@ -332,6 +342,11 @@
                           <i class="fas fa-check-circle me-1"></i>OK
                         </span>
                       {% endif %}
+                    </td>
+                    <td>
+                      <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:12px;" onclick="openItemHistory('{{ dept_name }}', '{{ item_name }}')">
+                        <i class="fas fa-history me-1"></i>Ledger
+                      </button>
                     </td>
                   </tr>
                   {% endfor %}
@@ -390,14 +405,29 @@
                     <th>Item Name</th>
                     <th>Total Qty Issued</th>
                     <th>Unit</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for item_name, info in items.items() %}
                   <tr>
-                    <td><strong>{{ item_name }}</strong></td>
-                    <td><span class="qty-pill primary">{{ info.qty }}</span></td>
+                    <td>
+                      <a href="javascript:void(0)" onclick="openItemHistory('{{ dept_name }}', '{{ item_name }}')" class="text-decoration-none fw-bold text-dark d-inline-flex align-items-center gap-1" title="Click to view who was issued this item">
+                        <span>{{ item_name }}</span>
+                        <i class="fas fa-external-link-alt text-success" style="font-size:10px;"></i>
+                      </a>
+                    </td>
+                    <td>
+                      <span class="qty-pill primary" style="cursor:pointer;" onclick="openItemHistory('{{ dept_name }}', '{{ item_name }}')" title="Click to see who was issued these {{ info.qty }} items">
+                        {{ info.qty }}
+                      </span>
+                    </td>
                     <td><span style="color:#64748b;">{{ info.unit }}</span></td>
+                    <td>
+                      <button type="button" class="btn btn-sm btn-outline-success py-0 px-2" style="font-size:12px;" onclick="openItemHistory('{{ dept_name }}', '{{ item_name }}')">
+                        <i class="fas fa-list-ul me-1"></i>Who Received
+                      </button>
+                    </td>
                   </tr>
                   {% endfor %}
                 </tbody>
@@ -411,16 +441,345 @@
     </div>
   </div>
 
+
+  <!-- ── Item Stock & Issue History Modal ── -->
+  <div class="modal fade" id="itemHistoryModal" tabindex="-1" aria-labelledby="itemHistoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content border-0 shadow-lg" style="border-radius:16px; overflow:hidden;">
+        <div class="modal-header text-white" style="background:linear-gradient(135deg, #1a4f8c 0%, #1e6bbf 100%); padding:18px 24px;">
+          <div>
+            <h5 class="modal-title fw-bold mb-1" id="itemHistoryModalLabel">
+              <i class="fas fa-clipboard-list me-2"></i><span id="modalDeptName">Department</span> — <span id="modalItemName">Item Name</span>
+            </h5>
+            <small class="text-white-50">Department Stock Movement, Additions & Issue Ledger</small>
+          </div>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <div class="modal-body p-4">
+          <!-- Summary Metric Cards -->
+          <div class="row g-3 mb-4" id="modalSummaryCards">
+            <div class="col-md-4">
+              <div class="card border-0 p-3 rounded-3" style="background:#f0fdf4; border:1px solid #bbf7d0 !important;">
+                <div class="d-flex align-items-center">
+                  <div class="rounded-3 p-2 bg-success text-white me-3" style="width:42px;height:42px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-truck-loading"></i>
+                  </div>
+                  <div>
+                    <div class="text-muted text-uppercase fw-semibold" style="font-size:11px;">Total Stock Added (In)</div>
+                    <h4 class="mb-0 fw-bold text-success" id="modalTotalIn">0</h4>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-md-4">
+              <div class="card border-0 p-3 rounded-3" style="background:#fef2f2; border:1px solid #fecaca !important;">
+                <div class="d-flex align-items-center">
+                  <div class="rounded-3 p-2 bg-danger text-white me-3" style="width:42px;height:42px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-hand-holding-box"></i>
+                  </div>
+                  <div>
+                    <div class="text-muted text-uppercase fw-semibold" style="font-size:11px;">Total Stock Issued (Out)</div>
+                    <h4 class="mb-0 fw-bold text-danger" id="modalTotalOut">0</h4>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-md-4">
+              <div class="card border-0 p-3 rounded-3" style="background:#eff6ff; border:1px solid #bfdbfe !important;">
+                <div class="d-flex align-items-center">
+                  <div class="rounded-3 p-2 bg-primary text-white me-3" style="width:42px;height:42px;display:flex;align-items:center;justify-content:center;">
+                    <i class="fas fa-boxes"></i>
+                  </div>
+                  <div>
+                    <div class="text-muted text-uppercase fw-semibold" style="font-size:11px;">Current Available Stock</div>
+                    <h4 class="mb-0 fw-bold text-primary" id="modalCurrentBalance">0</h4>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filter & Action Controls with Date Range -->
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2 p-2 bg-light rounded-3 border">
+            <!-- Search Text Input -->
+            <div class="input-group" style="max-width:280px;">
+              <span class="input-group-text bg-white border-end-0 py-1"><i class="fas fa-search text-muted small"></i></span>
+              <input type="text" class="form-control form-control-sm border-start-0" id="historyFilterInput" placeholder="Search employee, actor, GRN..." onkeyup="filterHistoryModalTable()">
+            </div>
+
+            <!-- Date Filter: From Date & To Date -->
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <div class="d-flex align-items-center gap-1">
+                <label class="small text-muted fw-semibold mb-0" for="historyFromDate" style="font-size:12px;">From:</label>
+                <input type="date" class="form-control form-control-sm bg-white" id="historyFromDate" style="width:145px;" onchange="filterHistoryModalTable()">
+              </div>
+              <div class="d-flex align-items-center gap-1">
+                <label class="small text-muted fw-semibold mb-0" for="historyToDate" style="font-size:12px;">To:</label>
+                <input type="date" class="form-control form-control-sm bg-white" id="historyToDate" style="width:145px;" onchange="filterHistoryModalTable()">
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-secondary py-1 px-2" onclick="clearModalDateFilter()" title="Reset Filters">
+                <i class="fas fa-redo-alt me-1"></i>Reset
+              </button>
+            </div>
+
+            <!-- Download CSV -->
+            <button class="btn btn-sm btn-outline-success py-1 px-3" onclick="downloadModalHistoryCSV()">
+              <i class="fas fa-file-excel me-1"></i>Download CSV
+            </button>
+          </div>
+
+          <!-- Loading Spinner -->
+          <div id="modalLoadingState" class="text-center py-5" style="display:none;">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div class="mt-2 text-muted small">Loading complete stock & issue history...</div>
+          </div>
+
+          <!-- Empty State -->
+          <div id="modalEmptyState" class="text-center py-5 text-muted" style="display:none;">
+            <i class="fas fa-inbox fa-3x mb-2 text-secondary opacity-50"></i>
+            <div>No transaction records found for this department & item.</div>
+          </div>
+
+          <!-- Transactions Table -->
+          <div class="table-responsive" id="modalTableWrap">
+            <table class="table table-hover table-sm align-middle border mb-0" id="historyModalTable">
+              <thead style="background:#f8fafd; font-size:11.5px; text-transform:uppercase; letter-spacing:.5px; color:#475569;">
+                <tr>
+                  <th style="width:110px;">Date</th>
+                  <th style="width:140px;">Action / Type</th>
+                  <th>Reference / Employee</th>
+                  <th class="text-end text-success" style="width:90px;">In (+)</th>
+                  <th class="text-end text-danger" style="width:90px;">Out (-)</th>
+                  <th style="width:150px;">Issued By / Actor</th>
+                  <th class="text-end" style="width:110px;">Stock Balance</th>
+                  <th>Remarks</th>
+                </tr>
+              </thead>
+              <tbody id="historyModalBody" style="font-size:13px;">
+                <!-- Filled via AJAX -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="modal-footer bg-light py-2">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+  let currentModalData = [];
+  let activeFilteredData = [];
+  let currentModalDept = '';
+  let currentModalItem = '';
+
   function toggleAcc(id, btn) {
     const body = document.getElementById(id);
     const isOpen = body.classList.contains('show');
     body.classList.toggle('show', !isOpen);
     btn.classList.toggle('open', !isOpen);
+  }
+
+  function clearModalDateFilter() {
+    document.getElementById('historyFromDate').value = '';
+    document.getElementById('historyToDate').value = '';
+    document.getElementById('historyFilterInput').value = '';
+    filterHistoryModalTable();
+  }
+
+  function openItemHistory(dept, itemName) {
+    currentModalDept = dept;
+    currentModalItem = itemName;
+
+    document.getElementById('modalDeptName').textContent = dept;
+    document.getElementById('modalItemName').textContent = itemName;
+    document.getElementById('historyFilterInput').value = '';
+    document.getElementById('historyFromDate').value = '';
+    document.getElementById('historyToDate').value = '';
+
+    const modalLoading = document.getElementById('modalLoadingState');
+    const modalEmpty = document.getElementById('modalEmptyState');
+    const modalTableWrap = document.getElementById('modalTableWrap');
+    const tbody = document.getElementById('historyModalBody');
+
+    tbody.innerHTML = '';
+    modalLoading.style.display = 'block';
+    modalEmpty.style.display = 'none';
+    modalTableWrap.style.display = 'none';
+
+    // Show modal
+    const historyModalEl = document.getElementById('itemHistoryModal');
+    const bsModal = bootstrap.Modal.getOrCreateInstance(historyModalEl);
+    bsModal.show();
+
+    fetch(`/department-stock/item-history?department=${encodeURIComponent(dept)}&item_name=${encodeURIComponent(itemName)}`)
+      .then(res => res.json())
+      .then(data => {
+        modalLoading.style.display = 'none';
+        if (!data.success || !data.history || data.history.length === 0) {
+          modalEmpty.style.display = 'block';
+          document.getElementById('modalTotalIn').textContent = '0';
+          document.getElementById('modalTotalOut').textContent = '0';
+          document.getElementById('modalCurrentBalance').textContent = '0';
+          currentModalData = [];
+          return;
+        }
+
+        currentModalData = data.history; activeFilteredData = data.history;
+        document.getElementById('modalTotalIn').textContent = data.total_in || 0;
+        document.getElementById('modalTotalOut').textContent = data.total_out || 0;
+        document.getElementById('modalCurrentBalance').textContent = data.current_balance || 0;
+
+        renderModalTable(data.history);
+        modalTableWrap.style.display = 'block';
+      })
+      .catch(err => {
+        modalLoading.style.display = 'none';
+        modalEmpty.style.display = 'block';
+        modalEmpty.innerHTML = `<span class="text-danger"><i class="fas fa-exclamation-circle me-1"></i>Error loading history: ${err}</span>`;
+      });
+  }
+
+  function renderModalTable(records) {
+    const tbody = document.getElementById('historyModalBody');
+    tbody.innerHTML = '';
+
+    if (records.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No matching records found.</td></tr>';
+      return;
+    }
+
+    records.forEach(row => {
+      const tr = document.createElement('tr');
+
+      let typeBadge = '';
+      if (row.type === 'Stock Added') {
+        typeBadge = '<span class="badge" style="background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0;"><i class="fas fa-arrow-down me-1"></i>Stock Added</span>';
+      } else if (row.type === 'PPE Issued') {
+        typeBadge = '<span class="badge" style="background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe;"><i class="fas fa-user-check me-1"></i>PPE Issued</span>';
+      } else if (row.type === 'Contractor Issued') {
+        typeBadge = '<span class="badge" style="background:#fffbeb; color:#d97706; border:1px solid #fde68a;"><i class="fas fa-hard-hat me-1"></i>Contractor Issue</span>';
+      } else if (row.type === 'Returned') {
+        typeBadge = '<span class="badge" style="background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe;"><i class="fas fa-undo me-1"></i>Returned</span>';
+      } else {
+        typeBadge = `<span class="badge bg-secondary">${row.type}</span>`;
+      }
+
+      const inDisplay = row.in_qty ? `<strong class="text-success">+${row.in_qty}</strong>` : '<span class="text-muted">-</span>';
+      const outDisplay = row.out_qty ? `<strong class="text-danger">-${row.out_qty}</strong>` : '<span class="text-muted">-</span>';
+      const balancePill = `<span class="qty-pill ${row.balance < 10 ? 'danger' : 'success'}" style="font-size:12px; padding:2px 10px;">${row.balance}</span>`;
+
+      tr.innerHTML = `
+        <td><span class="text-muted">${row.txn_date || '-'}</span></td>
+        <td>${typeBadge}</td>
+        <td><strong class="text-dark">${escapeHtml(row.ref || '-')}</strong></td>
+        <td class="text-end">${inDisplay}</td>
+        <td class="text-end">${outDisplay}</td>
+        <td>
+          <span class="fw-semibold text-dark">
+            <i class="fas fa-user-circle me-1 text-primary"></i>${escapeHtml(row.actor || '-')}
+          </span>
+        </td>
+        <td class="text-end">${balancePill}</td>
+        <td><small class="text-muted">${escapeHtml(row.remarks || '')}</small></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function filterHistoryModalTable() {
+    const q = document.getElementById('historyFilterInput').value.trim().toLowerCase();
+    const fromDate = document.getElementById('historyFromDate').value;
+    const toDate = document.getElementById('historyToDate').value;
+
+    const filtered = currentModalData.filter(r => {
+      // 1. Date Range Filter
+      const rowDate = (r.txn_date || '').trim();
+      if (fromDate && rowDate && rowDate < fromDate) {
+        return false;
+      }
+      if (toDate && rowDate && rowDate > toDate) {
+        return false;
+      }
+
+      // 2. Search Text Filter
+      if (q) {
+        const matchesText = (r.txn_date && r.txn_date.toLowerCase().includes(q)) ||
+                            (r.type && r.type.toLowerCase().includes(q)) ||
+                            (r.ref && r.ref.toLowerCase().includes(q)) ||
+                            (r.actor && r.actor.toLowerCase().includes(q)) ||
+                            (r.remarks && r.remarks.toLowerCase().includes(q));
+        if (!matchesText) return false;
+      }
+
+      return true;
+    });
+
+    activeFilteredData = filtered;
+
+    // Recalculate summary cards for the filtered date range
+    let filteredIn = 0;
+    let filteredOut = 0;
+    filtered.forEach(r => {
+      filteredIn += (parseInt(r.in_qty) || 0);
+      filteredOut += (parseInt(r.out_qty) || 0);
+    });
+
+    document.getElementById('modalTotalIn').textContent = filteredIn;
+    document.getElementById('modalTotalOut').textContent = filteredOut;
+
+    renderModalTable(filtered);
+  }
+
+  function downloadModalHistoryCSV() {
+    const dataToExport = (activeFilteredData && activeFilteredData.length > 0) ? activeFilteredData : currentModalData;
+    if (!dataToExport || dataToExport.length === 0) {
+      alert('No data to export.');
+      return;
+    }
+    const headers = ['Date', 'Type', 'Reference / Recipient', 'In (+)', 'Out (-)', 'Issued By / Actor', 'Stock Balance', 'Remarks'];
+    let csvContent = 'data:text/csv;charset=utf-8,' + headers.join(',') + '\n';
+
+    dataToExport.forEach(r => {
+      const row = [
+        `"${r.txn_date || ''}"`,
+        `"${r.type || ''}"`,
+        `"${(r.ref || '').replace(/"/g, '""')}"`,
+        r.in_qty || 0,
+        r.out_qty || 0,
+        `"${(r.actor || '').replace(/"/g, '""')}"`,
+        r.balance || 0,
+        `"${(r.remarks || '').replace(/"/g, '""')}"`
+      ];
+      csvContent += row.join(',') + '\n';
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `${currentModalDept}_${currentModalItem}_history.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  function escapeHtml(text) {
+    if (!text) return '';
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 </script>
 {% endblock %}

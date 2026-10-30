@@ -585,6 +585,17 @@ def edit(id):
             conn.close()
             return redirect(url_for('issues.index'))
 
+        role = session.get('role')
+        is_admin = role in ('Admin', 'Super Admin')
+        if not is_admin:
+            from modules.user_admin import get_user_dept_variants
+            dept_variants = get_user_dept_variants() or []
+            rec_dept = (old.get('department') or '').strip().lower()
+            if rec_dept not in dept_variants:
+                conn.close()
+                flash("Access denied: You cannot edit records belonging to another department.", "danger")
+                return redirect(url_for('issues.index'))
+
         new_qty = int(request.form['qty'])
         qty_diff = new_qty - old['qty']
 
@@ -633,6 +644,17 @@ def delete(id):
             flash('Issue record not found.', 'danger')
             conn.close()
             return redirect(url_for('issues.index'))
+
+        role = session.get('role')
+        is_admin = role in ('Admin', 'Super Admin')
+        if not is_admin:
+            from modules.user_admin import get_user_dept_variants
+            dept_variants = get_user_dept_variants() or []
+            rec_dept = (row.get('department') or '').strip().lower()
+            if rec_dept not in dept_variants:
+                conn.close()
+                flash("Access denied: You cannot delete records belonging to another department.", "danger")
+                return redirect(url_for('issues.index'))
 
         c.execute("DELETE FROM issue_register WHERE id=%s", (id,))
         c.execute("UPDATE items SET stock=stock+%s WHERE id=%s", (row['qty'], row['item_id']))

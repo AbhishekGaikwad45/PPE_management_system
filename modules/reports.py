@@ -319,7 +319,18 @@ def export_pdf():
         flash(f"Error generating PDF report: {e}", "danger")
         return redirect(url_for('reports.index'))
     conn.close()
+    import html as html_lib
     headers = list(data[0].keys()) if data else []
+    esc_type = html_lib.escape(report_type.upper())
+    esc_from = html_lib.escape(str(from_date))
+    esc_to = html_lib.escape(str(to_date))
+
+    th_cells = ''.join(f'<th>{html_lib.escape(h.upper().replace("_", " "))}</th>' for h in headers)
+    tr_rows = ''.join(
+        '<tr>' + ''.join(f'<td>{html_lib.escape(str(row.get(k, "") if row.get(k) is not None else ""))}</td>' for k in headers) + '</tr>'
+        for row in data
+    )
+
     html = f"""<!DOCTYPE html><html><head><style>
     body{{font-family:Arial;font-size:10px;margin:20px}}
     h2{{color:#1A3A5C;text-align:center}} p{{text-align:center;color:#666}}
@@ -328,9 +339,9 @@ def export_pdf():
     td{{padding:5px;border-bottom:1px solid #ddd}} tr:nth-child(even){{background:#f0f6ff}}
     </style></head><body>
     <h2>PPE & Equipment Management System</h2>
-    <p>{report_type.upper()} REPORT | {from_date} to {to_date}</p>
-    <table><tr>{''.join(f'<th>{h.upper().replace("_", " ")}</th>' for h in headers)}</tr>
-    {''.join('<tr>' + ''.join(f'<td>{row.get(k, "")}</td>' for k in headers) + '</tr>' for row in data)}
+    <p>{esc_type} REPORT | {esc_from} to {esc_to}</p>
+    <table><tr>{th_cells}</tr>
+    {tr_rows}
     </table></body></html>"""
     response = make_response(html)
     response.headers['Content-Type'] = 'text/html'

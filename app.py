@@ -22,7 +22,7 @@ import os
 import traceback
 
 app = Flask(__name__)
-app.secret_key = "ppe_jsw_secret_2024"
+app.secret_key = os.environ.get("SECRET_KEY", "ppe_jsw_secret_2024")
 
 # Register Blueprints
 app.register_blueprint(auth_bp)
@@ -87,4 +87,7 @@ if __name__ == '__main__':
     # Set RUN_MIGRATIONS_ON_STARTUP=true in .env only if you want this on every start.
     if os.environ.get('RUN_MIGRATIONS_ON_STARTUP', '').lower() in ('1', 'true', 'yes'):
         run_migrations()
-    app.run(debug=True, host='0.0.0.0', port=5002)
+    is_debug = os.environ.get('FLASK_DEBUG', 'true').lower() in ('1', 'true', 'yes')
+    host = os.environ.get('FLASK_HOST', '127.0.0.1' if is_debug else '0.0.0.0')
+    port = int(os.environ.get('FLASK_PORT', 5002))
+    app.run(debug=is_debug, host=host, port=port)
